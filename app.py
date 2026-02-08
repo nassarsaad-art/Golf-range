@@ -61,10 +61,7 @@ def remove_outliers_per_club(df: pd.DataFrame, sigma: float) -> pd.DataFrame:
     return df.groupby("Type", group_keys=False).apply(filt)
 
 def mvee(P: np.ndarray, tol: float = 1e-4, max_iter: int = 5000):
-    """
-    Minimum Volume Enclosing Ellipse (MVEE) via Khachiyan algorithm.
-    Returns (center c, shape matrix A) for ellipse: (x-c)^T A (x-c) <= 1
-    """
+    """Minimum Volume Enclosing Ellipse (MVEE) via Khachiyan algorithm."""
     P = P.astype(float)
     n, d = P.shape
 
@@ -112,7 +109,6 @@ def add_tight_enclosing_ellipse(ax, x, y, color: str):
 
     c, A = mvee(xy)
 
-    # Convert (x-c)^T A (x-c) <= 1 to ellipse parameters
     try:
         shape = np.linalg.inv(A)
     except np.linalg.LinAlgError:
@@ -142,7 +138,6 @@ def plot_virtual_range(df: pd.DataFrame, clubs: list[str], title: str, draw_oval
     fig = plt.figure(figsize=(7, 10))
     ax = plt.gca()
 
-    # Range arcs (every 20 yd)
     max_y = int(df["Carry[yd]"].max() // 20 * 20 + 20) if len(df) else 200
     theta = np.linspace(-np.pi/2, np.pi/2, 400)
     for r in range(20, max_y + 1, 20):
@@ -182,6 +177,20 @@ def plot_virtual_range(df: pd.DataFrame, clubs: list[str], title: str, draw_oval
 
     st.pyplot(fig, clear_figure=True)
 
+def detect_datetime_column(df: pd.DataFrame) -> str | None:
+    # Prefer explicit names if present
+    preferred = ["Time", "Date", "Datetime", "Timestamp"]
+    for c in preferred:
+        if c in df.columns:
+            return c
+
+    # Fallback: any column containing date/time keywords
+    for c in df.columns:
+        lc = str(c).lower()
+        if "time" in lc or "date" in lc:
+            return c
+    return None
+
 # ---------------- UI ----------------
 st.sidebar.header("Controles")
 
@@ -190,7 +199,6 @@ sigma = st.sidebar.slider("Filtro outliers: ±σ", 0.5, 2.5, 1.0, 0.1)
 draw_oval = st.sidebar.checkbox("Mostrar óvalo (ajustado)", value=True)
 
 st.header("Carga de datos")
-
 modo = st.radio("Entrada", ["Pegar CSV (texto)", "Subir archivo"], index=0)
 
 if modo == "Pegar CSV (texto)":
@@ -217,10 +225,31 @@ if missing:
     st.error(f"El CSV no tiene estas columnas requeridas: {sorted(list(missing))}")
     st.stop()
 
+# ---- Date filter (by most recent unique dates) ----
+dt_col = detect_datetime_column(df)
+if dt_col:
+    dt = pd.to_datetime(df[dt_col], errors="coerce")
+    df["_dt"] = dt
+    df["_date"] = df["_dt"].dt.date
+
+    unique_dates = [d for d in sorted(df["_date"].dropna().unique())]
+    if len(unique_dates) >= 1:
+        n = st.sidebar.slider("¿Cuántas fechas incluir (más recientes)?", 1, len(unique_dates), len(unique_dates), 1)
+        selected_dates = set(unique_dates[-n:])
+        df = df[df["_date"].isin(selected_dates)].copy()
+        with st.expander("Fechas incluidas", expanded=False):
+            st.write(list(unique_dates[-n:]))
+else:
+    st.sidebar.caption("No se detectó columna de fecha/hora en el CSV.")
+
+# ---- Parse direction + clean ----
 df["Dir_signed"] = df["Launch Direction"].apply(parse_direction)
 df = df.dropna(subset=["Carry[yd]", "Dir_signed", "Type"])
 
 available_clubs = sorted(df["Type"].dropna().unique().tolist())
+if len(available_clubs) == 0:
+    st.error("Con el filtro actual no quedaron golpes para graficar.")
+    st.stop()
 
 view_mode = st.sidebar.radio("Qué mostrar", ["Un palo", "Varios palos"], index=0)
 if view_mode == "Un palo":
