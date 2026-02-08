@@ -27,6 +27,7 @@ def parse_direction(val):
         return np.nan
 
 def mahalanobis_filter(df, keep_pct):
+    """Keep the closest keep_pct (0–1) shots per club using Mahalanobis distance in (Dir, Carry)."""
     def filt(g):
         if len(g) < 6:
             return g
@@ -40,6 +41,7 @@ def mahalanobis_filter(df, keep_pct):
     return df.groupby("Type", group_keys=False).apply(filt)
 
 def mvee(P, tol=1e-4, max_iter=5000):
+    """Minimum Volume Enclosing Ellipse (MVEE) via Khachiyan algorithm."""
     P = P.astype(float)
     n, d = P.shape
     if n < 2:
@@ -64,39 +66,87 @@ def mvee(P, tol=1e-4, max_iter=5000):
     A = np.linalg.pinv(S) / d
     return c, A
 
-def add_ellipse(ax, x, y, color):
-    xy = np.column_stack([x, y]).astype(float)
+def ellipse_params_from_points(xy):
+    """Return (center, width, height, angle_deg) for tight enclosing ellipse (MVEE)."""
     if xy.shape[0] < 3:
-        return
+        return None
     c, A = mvee(xy)
     shape = np.linalg.pinv(A)
     eigvals, eigvecs = np.linalg.eigh(shape)
     order = eigvals.argsort()[::-1]
     eigvals = eigvals[order]
     eigvecs = eigvecs[:, order]
-    a = np.sqrt(eigvals[0])
-    b = np.sqrt(eigvals[1])
-    angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
-    ax.add_patch(Ellipse(c, 2*a, 2*b, angle=angle, fill=False, linewidth=2, edgecolor=color))
+    a = float(np.sqrt(eigvals[0]))
+    b = float(np.sqrt(eigvals[1]))
+    angle = float(np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0])))
+    return c, 2*a, 2*b, angle
+
+def add_ellipse(ax, center, width, height, angle, color):
+    ax.add_patch(Ellipse(center, width, height, angle=angle, fill=False, linewidth=2, edgecolor=color))
 
 def plot_range(df, clubs, title, draw_oval):
     fig = plt.figure(figsize=(7,10))
     ax = plt.gca()
+
     max_y = int(df["Carry[yd]"].max()//20*20 + 20) if len(df) else 200
     theta = np.linspace(-np.pi/2, np.pi/2, 400)
     for r in range(20, max_y+1, 20):
         ax.plot(r*np.sin(theta), r*np.cos(theta), color="lightgray", lw=0.8)
         ax.text(0, r+1, f"{r} yd", ha="center", fontsize=8, color="gray")
+
     markers = {"3W":"o","5H":"s","7I":"^","9I":"D","AW":"v","LW":"x"}
     colors = {"3W":"blue","5H":"green","7I":"orange","9I":"red","AW":"purple","LW":"brown"}
+
     for c in clubs:
         sub = df[df["Type"]==c]
-        if sub.empty: continue
+        if sub.empty:
+            continue
+
         col = colors.get(c,"black")
         ax.scatter(sub["Dir_signed"], sub["Carry[yd]"], marker=markers.get(c,"o"),
                    color=col, alpha=0.8, label=f"{c} (n={len(sub)})")
-        if draw_oval:
-            add_ellipse(ax, sub["Dir_signed"].values, sub["Carry[yd]"].values, col)
+
+        # Avg carry label (for points currently shown: core after filtering)
+        avg_carry = float(sub["Carry[yd]"].mean())
+        avg_txt = f"{int(round(avg_carry))} yd"
+
+        if draw_oval and len(sub) >= 3:
+            xy = sub[["Dir_signed","Carry[yd]"]].values.astype(float)
+            params = ellipse_params_from_points(xy)
+            if params:
+                center, w, h, ang = params
+                add_ellipse(ax, center, w, h, ang, col)
+
+                # Put label to the right of the ellipse, clamped to plot bounds
+                # center[0] is direction, w/2 is horizontal semi-axis length
+                x_label = float(center[0] + (w/2) + 2.0)
+                x_label = min(max(x_label, -38.0), 38.0)
+                y_label = float(center[1])
+
+                ax.text(
+                    x_label, y_label,
+                    avg_txt,
+                    fontsize=9,
+                    va="center",
+                    ha="left",
+                    color=col,
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.7),
+                )
+        else:
+            # If no oval, still show label near the mean point
+            x_label = float(sub["Dir_signed"].mean())
+            x_label = min(max(x_label + 2.0, -38.0), 38.0)
+            y_label = float(sub["Carry[yd]"].mean())
+            ax.text(
+                x_label, y_label,
+                avg_txt,
+                fontsize=9,
+                va="center",
+                ha="left",
+                color=col,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.7),
+            )
+
     ax.axvline(0,color="black")
     ax.set_xlim(-40,40)
     ax.set_ylim(0,max_y+10)
@@ -122,11 +172,13 @@ st.header("Carga de datos")
 modo = st.radio("Entrada", ["Pegar CSV (texto)", "Subir archivo"], index=0)
 if modo=="Pegar CSV (texto)":
     txt = st.text_area("Pega el CSV completo", height=260)
-    if not txt or len(txt.strip())<50: st.stop()
+    if not txt or len(txt.strip())<50:
+        st.stop()
     df = pd.read_csv(io.StringIO(txt.strip().lstrip("\ufeff")))
 else:
     f = st.file_uploader("Sube CSV", type="csv")
-    if not f: st.stop()
+    if not f:
+        st.stop()
     df = pd.read_csv(f)
 
 required = {"Carry[yd]","Launch Direction","Type"}
@@ -139,7 +191,7 @@ if dt_col:
     df["_dt"] = pd.to_datetime(df[dt_col], errors="coerce")
     df["_date"] = df["_dt"].dt.date
     dates = sorted(df["_date"].dropna().unique())
-    if len(dates)>1:
+    if len(dates) > 1:
         n = st.sidebar.slider("Últimas fechas", 1, len(dates), len(dates), 1)
         df = df[df["_date"].isin(dates[-n:])]
 
