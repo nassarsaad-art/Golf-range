@@ -60,48 +60,75 @@ def remove_outliers_per_club(df: pd.DataFrame, sigma: float) -> pd.DataFrame:
 
     return df.groupby("Type", group_keys=False).apply(filt)
 
-def _k_from_mode(mode: str) -> float:
-    # sqrt(chi2.ppf(p, df=2)) hardcode (sin scipy)
-    if mode.startswith("68%"):
-        return 1.51   # ~68%
-    if mode.startswith("90%"):
-        return 2.15   # ~90%
-    if mode.startswith("95%"):
-        return 2.45   # ~95%
-    return np.nan
+def mvee(P: np.ndarray, tol: float = 1e-4, max_iter: int = 5000):
+    """
+    Minimum Volume Enclosing Ellipse (MVEE) via Khachiyan algorithm.
+    Returns (center c, shape matrix A) for ellipse: (x-c)^T A (x-c) <= 1
+    """
+    P = P.astype(float)
+    n, d = P.shape
 
-def add_ellipse(ax, x, y, mode: str, color: str):
-    """Confidence ellipse centrada (68/90/95%) o 'encierra todo'."""
+    if n < 2:
+        c = P.mean(axis=0)
+        A = np.eye(d)
+        return c, A
+
+    Q = np.column_stack([P, np.ones(n)]).T  # (d+1) x n
+    u = np.ones(n) / n
+
+    for _ in range(max_iter):
+        X = Q @ np.diag(u) @ Q.T
+        try:
+            X_inv = np.linalg.inv(X)
+        except np.linalg.LinAlgError:
+            X_inv = np.linalg.inv(X + 1e-9 * np.eye(X.shape[0]))
+
+        M = np.einsum("ij,jk,ki->i", Q.T, X_inv, Q)  # diag(Q^T X^-1 Q)
+        j = int(np.argmax(M))
+        max_M = float(M[j])
+
+        step = (max_M - (d + 1)) / ((d + 1) * (max_M - 1))
+        new_u = (1 - step) * u
+        new_u[j] += step
+
+        if np.linalg.norm(new_u - u) < tol:
+            u = new_u
+            break
+        u = new_u
+
+    c = P.T @ u
+    S = (P - c).T @ np.diag(u) @ (P - c)
+    try:
+        A = np.linalg.inv(S) / d
+    except np.linalg.LinAlgError:
+        A = np.linalg.pinv(S) / d
+    return c, A
+
+def add_tight_enclosing_ellipse(ax, x, y, color: str):
+    """Draw MVEE (tight ellipse that encloses all points)."""
     xy = np.column_stack([x, y]).astype(float)
     if xy.shape[0] < 3:
         return
 
-    mu = xy.mean(axis=0)
-    cov = np.cov(xy.T)
+    c, A = mvee(xy)
 
-    if np.linalg.det(cov) <= 1e-12:
-        return
+    # Convert (x-c)^T A (x-c) <= 1 to ellipse parameters
+    try:
+        shape = np.linalg.inv(A)
+    except np.linalg.LinAlgError:
+        shape = np.linalg.pinv(A)
 
-    eigvals, eigvecs = np.linalg.eigh(cov)
+    eigvals, eigvecs = np.linalg.eigh(shape)
     order = eigvals.argsort()[::-1]
     eigvals = eigvals[order]
     eigvecs = eigvecs[:, order]
 
-    angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
-
-    if mode == "Encierra todo":
-        inv_cov = np.linalg.inv(cov)
-        dif = xy - mu
-        d2 = np.einsum("...i,ij,...j->...", dif, inv_cov, dif)
-        k = float(np.sqrt(np.max(d2)))
-    else:
-        k = _k_from_mode(mode)
-
-    a = k * np.sqrt(eigvals[0])
-    b = k * np.sqrt(eigvals[1])
+    a = float(np.sqrt(eigvals[0]))
+    b = float(np.sqrt(eigvals[1]))
+    angle = float(np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0])))
 
     e = Ellipse(
-        xy=mu,
+        xy=c,
         width=2 * a,
         height=2 * b,
         angle=angle,
@@ -111,7 +138,7 @@ def add_ellipse(ax, x, y, mode: str, color: str):
     )
     ax.add_patch(e)
 
-def plot_virtual_range(df: pd.DataFrame, clubs: list[str], title: str, draw_oval: bool, oval_mode: str):
+def plot_virtual_range(df: pd.DataFrame, clubs: list[str], title: str, draw_oval: bool):
     fig = plt.figure(figsize=(7, 10))
     ax = plt.gca()
 
@@ -142,7 +169,7 @@ def plot_virtual_range(df: pd.DataFrame, clubs: list[str], title: str, draw_oval
         )
 
         if draw_oval:
-            add_ellipse(ax, sub["Dir_signed"].values, sub["Carry[yd]"].values, oval_mode, col)
+            add_tight_enclosing_ellipse(ax, sub["Dir_signed"].values, sub["Carry[yd]"].values, col)
 
     ax.axvline(0, color="black", linewidth=1)
     ax.set_xlim(-40, 40)
@@ -160,9 +187,7 @@ st.sidebar.header("Controles")
 
 include_outliers = st.sidebar.checkbox("Incluir outliers", value=True)
 sigma = st.sidebar.slider("Filtro outliers: ±σ", 0.5, 2.5, 1.0, 0.1)
-
-draw_oval = st.sidebar.checkbox("Mostrar óvalo", value=True)
-oval_mode = st.sidebar.selectbox("Tipo de óvalo", ["68% (centrado)", "90%", "95%", "Encierra todo"], index=0)
+draw_oval = st.sidebar.checkbox("Mostrar óvalo (ajustado)", value=True)
 
 st.header("Carga de datos")
 
@@ -197,8 +222,8 @@ df = df.dropna(subset=["Carry[yd]", "Dir_signed", "Type"])
 
 available_clubs = sorted(df["Type"].dropna().unique().tolist())
 
-mode = st.sidebar.radio("Qué mostrar", ["Un palo", "Varios palos"], index=0)
-if mode == "Un palo":
+view_mode = st.sidebar.radio("Qué mostrar", ["Un palo", "Varios palos"], index=0)
+if view_mode == "Un palo":
     club = st.sidebar.selectbox("Palo", available_clubs, index=0)
     clubs_to_plot = [club]
 else:
@@ -210,6 +235,6 @@ if not include_outliers:
     df_plot = remove_outliers_per_club(df_plot, sigma)
 
 title = "Virtual Range (incluye outliers)" if include_outliers else f"Virtual Range (outliers excluidos ±{sigma:.1f}σ)"
-plot_virtual_range(df_plot, clubs_to_plot, title, draw_oval, oval_mode)
+plot_virtual_range(df_plot, clubs_to_plot, title, draw_oval)
 
 st.caption("Dirección firmada: L negativo, R positivo. Eje X usa 'Launch Direction' convertido a número.")
