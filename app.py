@@ -1,228 +1,216 @@
 import io
-import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from matplotlib.patches import Ellipse
 
-# ---------------- Page ----------------
 st.set_page_config(page_title="Virtual Range", layout="wide")
+st.title("Virtual Range (Carry vs Dirección)")
 
-# ---------------- Helpers ----------------
 def parse_direction(val):
     if pd.isna(val):
         return np.nan
     if isinstance(val, str):
         v = val.strip().upper()
         if v.startswith("L"):
-            try: return -float(v[1:])
-            except: return np.nan
+            return -float(v[1:]) if v[1:].replace('.', '', 1).isdigit() else np.nan
         if v.startswith("R"):
-            try: return float(v[1:])
-            except: return np.nan
-        try: return float(v)
-        except: return np.nan
-    try: return float(val)
-    except: return np.nan
+            return float(v[1:]) if v[1:].replace('.', '', 1).isdigit() else np.nan
+        try:
+            return float(v)
+        except:
+            return np.nan
+    try:
+        return float(val)
+    except:
+        return np.nan
 
-def rotation_matrix(angle_deg):
-    t = math.radians(angle_deg)
-    return np.array([[math.cos(t), -math.sin(t)],
-                     [math.sin(t),  math.cos(t)]])
+def mahalanobis_filter(df, keep_pct):
+    """Keep the closest keep_pct (0–1) shots per club using Mahalanobis distance in (Dir, Carry)."""
+    def filt(g):
+        if len(g) < 6:
+            return g
+        X = g[["Dir_signed", "Carry[yd]"]].values.astype(float)
+        mu = X.mean(axis=0)
+        cov = np.cov(X.T)
+        inv = np.linalg.pinv(cov)
+        d2 = np.einsum("ij,jk,ik->i", X - mu, inv, X - mu)
+        cutoff = np.quantile(d2, keep_pct)
+        return g[d2 <= cutoff]
+    return df.groupby("Type", group_keys=False).apply(filt)
 
-def ellipse_params_from_points(X):
-    if len(X) < 3:
+def mvee(P, tol=1e-4, max_iter=5000):
+    """Minimum Volume Enclosing Ellipse (MVEE) via Khachiyan algorithm."""
+    P = P.astype(float)
+    n, d = P.shape
+    if n < 2:
+        return P.mean(axis=0), np.eye(d)
+    Q = np.column_stack([P, np.ones(n)]).T
+    u = np.ones(n) / n
+    for _ in range(max_iter):
+        X = Q @ np.diag(u) @ Q.T
+        X_inv = np.linalg.pinv(X)
+        M = np.einsum("ij,jk,ki->i", Q.T, X_inv, Q)
+        j = int(np.argmax(M))
+        max_M = float(M[j])
+        step = (max_M - (d + 1)) / ((d + 1) * (max_M - 1))
+        new_u = (1 - step) * u
+        new_u[j] += step
+        if np.linalg.norm(new_u - u) < tol:
+            u = new_u
+            break
+        u = new_u
+    c = P.T @ u
+    S = (P - c).T @ np.diag(u) @ (P - c)
+    A = np.linalg.pinv(S) / d
+    return c, A
+
+def ellipse_params_from_points(xy):
+    """Return (center, width, height, angle_deg) for tight enclosing ellipse (MVEE)."""
+    if xy.shape[0] < 3:
         return None
-    mu = X.mean(axis=0)
-    cov = np.cov(X.T)
-    vals, vecs = np.linalg.eigh(cov)
-    order = vals.argsort()[::-1]
-    vals, vecs = vals[order], vecs[:, order]
-    width, height = 2*np.sqrt(vals[0])*2.2, 2*np.sqrt(vals[1])*2.2
-    angle = math.degrees(math.atan2(vecs[1,0], vecs[0,0]))
-    return mu, width, height, angle
+    c, A = mvee(xy)
+    shape = np.linalg.pinv(A)
+    eigvals, eigvecs = np.linalg.eigh(shape)
+    order = eigvals.argsort()[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+    a = float(np.sqrt(eigvals[0]))
+    b = float(np.sqrt(eigvals[1]))
+    angle = float(np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0])))
+    return c, 2*a, 2*b, angle
 
-def blend_with_white(rgb, a):
-    return tuple(a + (1-a)*c for c in rgb)
+def add_ellipse(ax, center, width, height, angle, color):
+    ax.add_patch(Ellipse(center, width, height, angle=angle, fill=False, linewidth=2, edgecolor=color))
 
-def darken(rgb, f):
-    return tuple(max(0, c*f) for c in rgb)
+def plot_range(df, clubs, title, draw_oval):
+    fig = plt.figure(figsize=(7,10))
+    ax = plt.gca()
 
-def point_inside_ellipse(p, center, w, h, ang, pad=1.0):
-    R = rotation_matrix(-ang)
-    q = R @ (np.array(p) - np.array(center))
-    return (q[0]**2)/((w/2*pad)**2) + (q[1]**2)/((h/2*pad)**2) <= 1
+    max_y = int(df["Carry[yd]"].max()//20*20 + 20) if len(df) else 200
+    theta = np.linspace(-np.pi/2, np.pi/2, 400)
+    for r in range(20, max_y+1, 20):
+        ax.plot(r*np.sin(theta), r*np.cos(theta), color="lightgray", lw=0.8)
+        ax.text(0, r+1, f"{r} yd", ha="center", fontsize=8, color="gray")
 
-# ---------------- Sidebar ----------------
-with st.sidebar:
-    st.header("Controles")
-    up = st.file_uploader("Sube tu CSV de Golfboy", type=["csv"])
+    markers = {"3W":"o","5H":"s","7I":"^","9I":"D","AW":"v","LW":"x"}
+    colors = {"3W":"blue","5H":"green","7I":"orange","9I":"red","AW":"purple","LW":"brown"}
 
-    core_pct = st.slider("Core shots (%)", min_value=10, max_value=100, value=70, step=5)
+    for c in clubs:
+        sub = df[df["Type"]==c]
+        if sub.empty:
+            continue
 
-# ---------------- Main ----------------
-tabs = st.tabs(["Virtual Range", "Trayectoria", "Métricas"])
+        col = colors.get(c,"black")
+        ax.scatter(sub["Dir_signed"], sub["Carry[yd]"], marker=markers.get(c,"o"),
+                   color=col, alpha=0.8, label=f"{c} (n={len(sub)})")
 
-if not up:
-    with tabs[0]:
-        st.info("Sube un CSV para ver el Virtual Range")
-    st.stop()
+        # Avg carry label (for points currently shown: core after filtering)
+        avg_carry = float(sub["Carry[yd]"].mean())
+        avg_txt = f"{int(round(avg_carry))} yd"
 
-# ---------------- Load data ----------------
-df = pd.read_csv(up)
+        if draw_oval and len(sub) >= 3:
+            xy = sub[["Dir_signed","Carry[yd]"]].values.astype(float)
+            params = ellipse_params_from_points(xy)
+            if params:
+                center, w, h, ang = params
+                add_ellipse(ax, center, w, h, ang, col)
 
-# Expected columns (best-effort)
-# Try common names; adjust if missing
-col_map = {
-    "Club": ["Club", "Type"],
-    "Carry": ["Carry", "Carry[yd]", "Carry (yd)"],
-    "Direction": ["Direction", "Launch Direction", "Dir"],
-    "Date": ["Date", "Session", "Fecha"]
-}
+                # Put label to the right of the ellipse, clamped to plot bounds
+                # center[0] is direction, w/2 is horizontal semi-axis length
+                x_label = float(center[0] + (w/2) + 2.0)
+                x_label = min(max(x_label, -38.0), 38.0)
+                y_label = float(center[1])
 
-def pick_col(df, names):
-    for n in names:
-        if n in df.columns:
-            return n
+                ax.text(
+                    x_label, y_label,
+                    avg_txt,
+                    fontsize=9,
+                    va="center",
+                    ha="left",
+                    color=col,
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.7),
+                )
+        else:
+            # If no oval, still show label near the mean point
+            x_label = float(sub["Dir_signed"].mean())
+            x_label = min(max(x_label + 2.0, -38.0), 38.0)
+            y_label = float(sub["Carry[yd]"].mean())
+            ax.text(
+                x_label, y_label,
+                avg_txt,
+                fontsize=9,
+                va="center",
+                ha="left",
+                color=col,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.7),
+            )
+
+    ax.axvline(0,color="black")
+    ax.set_xlim(-40,40)
+    ax.set_ylim(0,max_y+10)
+    ax.set_xlabel("Dirección (yd)")
+    ax.set_ylabel("Carry (yd)")
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(False)
+    st.pyplot(fig, clear_figure=True)
+
+def detect_datetime_column(df):
+    for c in df.columns:
+        if any(k in c.lower() for k in ["time","date"]):
+            return c
     return None
 
-club_col = pick_col(df, col_map["Club"])
-carry_col = pick_col(df, col_map["Carry"])
-dir_col   = pick_col(df, col_map["Direction"])
-date_col  = pick_col(df, col_map["Date"])
+st.sidebar.header("Controles")
+use_filter = st.sidebar.checkbox("Mostrar solo golpes más agrupados", True)
+keep_pct = st.sidebar.slider("Porcentaje a conservar", 0.5, 0.95, 0.7, 0.05)
+draw_oval = st.sidebar.checkbox("Mostrar óvalo", True)
 
-if club_col is None or carry_col is None or dir_col is None:
-    st.error("No se encontraron columnas necesarias (Club, Carry, Direction).")
+st.header("Carga de datos")
+modo = st.radio("Entrada", ["Pegar CSV (texto)", "Subir archivo"], index=0)
+if modo=="Pegar CSV (texto)":
+    txt = st.text_area("Pega el CSV completo", height=260)
+    if not txt or len(txt.strip())<50:
+        st.stop()
+    df = pd.read_csv(io.StringIO(txt.strip().lstrip("\ufeff")))
+else:
+    f = st.file_uploader("Sube CSV", type="csv")
+    if not f:
+        st.stop()
+    df = pd.read_csv(f)
+
+required = {"Carry[yd]","Launch Direction","Type"}
+if not required.issubset(df.columns):
+    st.error("CSV inválido")
     st.stop()
 
-df = df.copy()
-df["Type"] = df[club_col].astype(str)
-df["Carry[yd]"] = pd.to_numeric(df[carry_col], errors="coerce")
-df["Dir_signed"] = df[dir_col].apply(parse_direction)
+dt_col = detect_datetime_column(df)
+if dt_col:
+    df["_dt"] = pd.to_datetime(df[dt_col], errors="coerce")
+    df["_date"] = df["_dt"].dt.date
+    dates = sorted(df["_date"].dropna().unique())
+    if len(dates) > 1:
+        n = st.sidebar.slider("Últimas fechas", 1, len(dates), len(dates), 1)
+        df = df[df["_date"].isin(dates[-n:])]
 
-if date_col:
-    df["_date"] = pd.to_datetime(df[date_col], errors="coerce")
+df["Dir_signed"] = df["Launch Direction"].apply(parse_direction)
+df = df.dropna(subset=["Carry[yd]","Dir_signed","Type"])
+
+if use_filter:
+    df = mahalanobis_filter(df, keep_pct)
+
+clubs = sorted(df["Type"].unique())
+if not clubs:
+    st.error("No hay datos")
+    st.stop()
+
+mode = st.sidebar.radio("Vista", ["Un palo","Varios palos"], index=0)
+if mode=="Un palo":
+    clubs_plot = [st.sidebar.selectbox("Palo", clubs)]
 else:
-    df["_date"] = pd.NaT
+    clubs_plot = st.sidebar.multiselect("Palos", clubs, default=clubs)
 
-df = df.dropna(subset=["Carry[yd]", "Dir_signed"])
-
-# ---------------- Date slider (SAFE) ----------------
-dates = df["_date"].dropna().sort_values().unique()
-with st.sidebar:
-    if len(dates) == 0:
-        n_dates = 1
-        st.caption("Sin fechas detectables; usando todos los golpes")
-    else:
-        max_n = len(dates)
-        n_dates = st.slider("¿Cuántas fechas?", min_value=1, max_value=max_n, value=min(3, max_n), step=1)
-
-if len(dates) > 0:
-    keep = set(dates[-n_dates:])
-    df = df[df["_date"].isin(keep)]
-
-# ---------------- Core shots by distance clustering ----------------
-def core_by_distance(df, pct):
-    keep_idx = []
-    for c, g in df.groupby("Type"):
-        if len(g) < 3:
-            keep_idx.extend(g.index.tolist())
-            continue
-        mu = g[["Dir_signed","Carry[yd]"]].mean().values
-        d = np.linalg.norm(g[["Dir_signed","Carry[yd]"]].values - mu, axis=1)
-        k = max(1, int(len(g)*pct/100))
-        keep = g.iloc[np.argsort(d)[:k]].index
-        keep_idx.extend(keep.tolist())
-    return df.loc[keep_idx]
-
-dfc = core_by_distance(df, core_pct)
-
-# ---------------- Colors ----------------
-palette = [
-    (0.20,0.45,0.85),(0.20,0.70,0.35),(0.85,0.35,0.35),
-    (0.45,0.25,0.65),(0.85,0.60,0.20),(0.10,0.65,0.65)
-]
-clubs = sorted(dfc["Type"].unique(), key=lambda x: dfc[dfc["Type"]==x]["Carry[yd]"].mean())
-color_map = {c: palette[i%len(palette)] for i,c in enumerate(clubs)}
-marker_map = ["o","s","^","D","v","x"]
-
-# ---------------- Virtual Range ----------------
-with tabs[0]:
-    fig, ax = plt.subplots(figsize=(6,10))
-    ax.axvline(0, color=(0.8,0.8,0.8), lw=1)
-    ellipses = []
-    labels = []
-    prev_y = -1e9
-
-    for i,c in enumerate(clubs):
-        g = dfc[dfc["Type"]==c]
-        col = color_map[c]
-        ax.scatter(g["Dir_signed"], g["Carry[yd]"], s=30, alpha=0.35, color=col)
-        p = ellipse_params_from_points(g[["Dir_signed","Carry[yd]"]].values)
-        if not p: continue
-        center,w,h,ang = p
-        ax.add_patch(Ellipse(center, w, h, angle=ang, fill=False, lw=2, ec=col))
-        ellipses.append((center,w,h,ang))
-
-        avg = g["Carry[yd]"].mean()
-        # label close to ellipse, left/right as needed
-        rx = w/2; ry = h/2
-        margin = 0.8
-        candidates = [(center[0]+rx+margin, center[1]), (center[0]-rx-margin, center[1])]
-        x,y = candidates[0]
-        if y < prev_y + 2:
-            y = prev_y + 2
-        prev_y = y
-
-        face = blend_with_white(col, 0.82)
-        txtc = darken(col, 0.72)
-        ax.text(x, y, f"{int(round(avg))} yd", ha="left", va="center",
-                fontsize=10, color=txtc,
-                bbox=dict(boxstyle="round,pad=0.35", facecolor=face, edgecolor="none", alpha=0.9))
-
-    ax.set_xlabel("Dirección (yd)  ← Izq | Der →")
-    ax.set_ylabel("Carry (yd)")
-    ax.set_title("Virtual Range")
-    ax.set_ylim(bottom=0)
-    st.pyplot(fig)
-
-# ---------------- Trajectory ----------------
-with tabs[1]:
-    fig, ax = plt.subplots(figsize=(6,10))
-    placed = []
-    for c in clubs:
-        g = dfc[dfc["Type"]==c]
-        d = g["Carry[yd]"].mean()
-        h = min(30, max(8, 0.12*d))
-        x = np.linspace(0, d, 80)
-        y = 4*h*(x/d)*(1-x/d)
-        col = color_map[c]
-        ax.plot(x, y, lw=2, color=col)
-        lx, ly = d*0.5, h+0.8
-        for _ in range(10):
-            if all(abs(lx-px)>10 or abs(ly-py)>1.2 for px,py in placed):
-                break
-            ly += 1.0
-        placed.append((lx,ly))
-        face = blend_with_white(col, 0.84)
-        txtc = darken(col, 0.70)
-        ax.text(lx, ly, f"{c}  {int(round(d))}yd / {int(round(h))}m",
-                ha="center", va="bottom", fontsize=9, color=txtc,
-                bbox=dict(boxstyle="round,pad=0.30", facecolor=face, edgecolor="none", alpha=0.9))
-    ax.set_xlabel("Carry (yd)")
-    ax.set_ylabel("Altura (m)")
-    ax.set_title("Trayectoria promedio")
-    st.pyplot(fig)
-
-# ---------------- Metrics ----------------
-with tabs[2]:
-    rows = []
-    for c in clubs:
-        g = dfc[dfc["Type"]==c]
-        rows.append({
-            "Palo": c,
-            "Carry Avg (yd)": round(g["Carry[yd]"].mean(),1),
-            "Shots": len(g)
-        })
-    st.dataframe(pd.DataFrame(rows))
+title = f"Virtual Range – core {int(keep_pct*100)}%"
+plot_range(df, clubs_plot, title, draw_oval)
