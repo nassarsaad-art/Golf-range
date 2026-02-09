@@ -228,6 +228,12 @@ def point_inside_ellipse(pt, center, width, height, angle_deg, pad=0.0):
     return (u[0]**2)/(a*a) + (u[1]**2)/(b*b) <= 1.0
 
 def pick_label_position(center, width, height, angle_deg, text, all_points_xy, other_ellipses, other_labels, xlim, ylim):
+    """
+    Pick a label position that is:
+    - just OUTSIDE its own ellipse (always outside)
+    - close to the ellipse
+    - not overlapping points, other labels, or other ellipses
+    """
     pad_x, pad_y = 2.0, 2.0
     candidates = [0, 30, -30, 90, -90, 150, -150, 180]
     R = rotation_matrix(angle_deg)
@@ -256,12 +262,17 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
                 return False
         return True
 
+    def outside_own_ellipse(p):
+        # Must be strictly outside (with a small pad) so the full chip isn't on top of the ellipse
+        return not point_inside_ellipse(p, center, width, height, angle_deg, pad=0.8)
+
     for deg in candidates:
         t = np.deg2rad(deg)
         local = np.array([(a + pad_x) * np.cos(t), (b + pad_y) * np.sin(t)])
         p = (np.array(center) + R @ local).astype(float)
 
         if not in_bounds(p): continue
+        if not outside_own_ellipse(p): continue
         if not far_from_points(p): continue
         if not far_from_labels(p): continue
         if not not_inside_other_ellipses(p): continue
@@ -270,7 +281,11 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
         va = "bottom" if deg in (90, 30, 150) else ("top" if deg in (-90, -30, -150) else "center")
         return p, ha, va
 
+    # Fallback: right side outside
     p = np.array([center[0] + a + pad_x, center[1]])
+    # ensure outside
+    if not outside_own_ellipse(p):
+        p = np.array([center[0] - a - pad_x, center[1]])
     p[0] = min(max(p[0], xlim[0] + 1), xlim[1] - 1)
     p[1] = min(max(p[1], ylim[0] + 1), ylim[1] - 1)
     return p, "left", "center"
@@ -344,6 +359,7 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
     # Build curves
     max_d = 0.0
     max_h = 0.0
+    placed = []  # (x,y) for apex label anchor
 
     for c in clubs:
         sub = df_core[df_core["Type"] == c].copy()
@@ -365,10 +381,27 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
         ax.plot(x, y, lw=2.6, color=col, alpha=0.90, zorder=3)
         # Apex marker + label
         ax.scatter([d/2], [h], s=42, color=col, zorder=4, edgecolors=(1,1,1,0.6), linewidths=0.6)
-        # Tinted chip label (same logic as Virtual Range)
+        # Tinted chip label (same logic as Virtual Range), avoid overlaps
         face = blend_with_white(col, 0.84)
         text_col = darken(col, 0.70)
-        ax.text(d/2, h + max(0.6, 0.04*h), f"{c}  {int(round(d))}yd / {int(round(h))}m",
+
+        lx = float(d/2)
+        ly = float(h + max(0.6, 0.04*h))
+
+        # If labels are too close, bump this one up a bit (repeat if needed)
+        for _ in range(12):
+            collide = False
+            for (px, py) in placed:
+                if abs(lx - px) < 18 and abs(ly - py) < 1.6:
+                    collide = True
+                    break
+            if not collide:
+                break
+            ly += 1.0
+
+        placed.append((lx, ly))
+
+        ax.text(lx, ly, f"{c}  {int(round(d))}yd / {int(round(h))}m",
                 fontsize=9, color=text_col,
                 ha="center", va="bottom",
                 bbox=dict(boxstyle="round,pad=0.30", facecolor=face, edgecolor="none", alpha=0.90),
@@ -470,8 +503,10 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
     color_map, marker_map = build_style_maps(clubs_unique)
 
     all_points_xy = df[["Dir_signed","Carry[yd]"]].values.astype(float) if len(df) else np.zeros((0,2))
-    ellipses_drawn, labels_placed = [], []
 
+    # Pass 1: draw points + ellipses, and collect label intents
+    ellipses_drawn = []
+    label_intents = []  # each: dict with avg_carry, txt, color, ellipse params
     for c in clubs_unique:
         sub = df[df["Type"] == c]
         if sub.empty:
@@ -490,24 +525,77 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
                 center, w, h, ang = params
                 ax.add_patch(Ellipse(center, w, h, angle=ang, fill=False, linewidth=2.2,
                                      edgecolor=col, alpha=0.90, zorder=6))
+                ellipses_drawn.append((center, w, h, ang))
 
                 avg_carry = float(sub["Carry[yd]"].mean())
                 txt = f"{int(round(avg_carry))} yd"
-                p, ha, va = pick_label_position(center, w, h, ang, txt, all_points_xy, ellipses_drawn, labels_placed, xlim, ylim)
+                label_intents.append(dict(
+                    club=c, avg=avg_carry, txt=txt, color=col,
+                    center=center, w=w, h=h, ang=ang
+                ))
 
-                # Colored chip: white pill with colored border + small colored dot
-                # Tinted chip (no border)
-                face = blend_with_white(col, 0.82)  # very light tint
-                text_col = darken(col, 0.72)        # slightly darker than the oval
-                ax.text(float(p[0]), float(p[1]), txt,
-                        fontsize=10, ha=ha, va=va, color=text_col,
-                        bbox=dict(boxstyle="round,pad=0.38", facecolor=face, edgecolor="none", alpha=0.90),
-                        zorder=7)
+    # Pass 2: place labels OUTSIDE and in ASCENDING order (bottom-to-top)
+    labels_placed = []
+    # sort ascending by avg carry
+    label_intents.sort(key=lambda d: d["avg"])
 
-                ellipses_drawn.append((center, w, h, ang))
-                labels_placed.append((float(p[0]), float(p[1])))
+    # Minimum vertical separation between labels (in yards axis units)
+    min_dy = 6.0
 
-    ax.set_xlim(*xlim)
+    # We'll try initial "best" position near ellipse, then adjust y to keep ascending layout.
+    prev_y = -1e9
+    for d in label_intents:
+        center, w, h, ang = d["center"], d["w"], d["h"], d["ang"]
+        txt, col = d["txt"], d["color"]
+
+        p, ha, va = pick_label_position(center, w, h, ang, txt, all_points_xy, ellipses_drawn, labels_placed, xlim, ylim)
+        px, py = float(p[0]), float(p[1])
+
+        # Enforce ascending y: if this would land above the next in order, stack it above previous
+        # (monotonic increasing as avg carry increases)
+        if py < prev_y + min_dy:
+            # Push upward but keep near ellipse: cap shift to within a reasonable band around ellipse
+            target = prev_y + min_dy
+            # try to move along vertical while staying outside and not colliding
+            py_try = target
+            tries = 0
+            while tries < 40:
+                cand = (px, py_try)
+                ok = True
+                if not (ylim[0] + 1 <= py_try <= ylim[1] - 1): ok = False
+                if point_inside_ellipse(cand, center, w, h, ang, pad=0.8): ok = False
+                # avoid other labels
+                for q in labels_placed:
+                    if (cand[0]-q[0])**2 + (cand[1]-q[1])**2 < (3.8**2):
+                        ok = False
+                        break
+                # avoid being inside other ellipses
+                if ok:
+                    for (c2,w2,h2,a2) in ellipses_drawn:
+                        if (c2 is center) and (w2==w) and (h2==h) and (a2==ang):
+                            continue
+                        if point_inside_ellipse(cand, c2, w2, h2, a2, pad=1.2):
+                            ok = False
+                            break
+                if ok:
+                    py = py_try
+                    va = "center"
+                    break
+                py_try += 1.2
+                tries += 1
+
+        # Tinted chip (no border)
+        face = blend_with_white(col, 0.82)  # very light tint
+        text_col = darken(col, 0.72)        # slightly darker than the oval
+        ax.text(px, py, txt,
+                fontsize=10, ha=ha, va=va, color=text_col,
+                bbox=dict(boxstyle="round,pad=0.38", facecolor=face, edgecolor="none", alpha=0.90),
+                zorder=7)
+
+        labels_placed.append((px, py))
+        prev_y = py
+
+    ax.set_xlim(*xlim)(*xlim)
     ax.set_ylim(*ylim)
     ax.set_xticks([]); ax.set_yticks([])
     for spine in ax.spines.values():
