@@ -276,6 +276,26 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
     return p, "left", "center"
 
 
+def hex_to_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16)/255.0 for i in (0, 2, 4))
+
+def rgb_to_hex(rgb):
+    return "#{:02X}{:02X}{:02X}".format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+
+def blend_with_white(hex_color, alpha):
+    """alpha=0 -> original, alpha=1 -> white"""
+    r,g,b = hex_to_rgb(hex_color)
+    r2 = r*(1-alpha) + 1.0*alpha
+    g2 = g*(1-alpha) + 1.0*alpha
+    b2 = b*(1-alpha) + 1.0*alpha
+    return (r2,g2,b2)
+
+def darken(hex_color, factor):
+    """factor in (0,1): 0.8 means 20% darker"""
+    r,g,b = hex_to_rgb(hex_color)
+    return (r*factor, g*factor, b*factor)
+
 def build_style_maps(clubs):
     """Deterministic unique color/marker per club (for consistent visuals across tabs)."""
     base_palette = [
@@ -357,7 +377,12 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
     # Axes limits + grid
     ax.set_xlim(0, max_d*1.08)
     ax.set_ylim(0, max_h*1.25)
-    ax.grid(True, color=(0.1,0.1,0.12,0.10), linewidth=1.0, zorder=1)
+    # Match the subtle gray used by arc labels in the Virtual Range
+    arc_gray = (0.20, 0.22, 0.25, 0.42)
+    ax.grid(True, color=(0.20,0.22,0.25,0.12), linewidth=1.0, zorder=1)
+    ax.tick_params(axis="both", colors=arc_gray)
+    ax.xaxis.label.set_color(arc_gray)
+    ax.yaxis.label.set_color(arc_gray)
     ax.set_xlabel("Carry (yd)")
     ax.set_ylabel("Altura (m)")
     ax.set_title("Trayectoria promedio por palo (Carry vs Altura)", fontsize=12, color=(0,0,0,0.68), pad=12)
@@ -467,13 +492,13 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
                 p, ha, va = pick_label_position(center, w, h, ang, txt, all_points_xy, ellipses_drawn, labels_placed, xlim, ylim)
 
                 # Colored chip: white pill with colored border + small colored dot
-                ax.text(float(p[0]), float(p[1]), f"  {txt}",
-                        fontsize=10, ha=ha, va=va, color=(0.08,0.09,0.10,0.92),
-                        bbox=dict(boxstyle="round,pad=0.38", facecolor="white", edgecolor=col, linewidth=1.8, alpha=0.97),
+                # Tinted chip (no border)
+                face = blend_with_white(col, 0.82)  # very light tint
+                text_col = darken(col, 0.72)        # slightly darker than the oval
+                ax.text(float(p[0]), float(p[1]), txt,
+                        fontsize=10, ha=ha, va=va, color=text_col,
+                        bbox=dict(boxstyle="round,pad=0.38", facecolor=face, edgecolor="none", alpha=0.90),
                         zorder=7)
-                # colored dot inside chip (placed slightly left of text anchor)
-                dx = -1.25 if ha == "left" else (1.25 if ha == "right" else 0.0)
-                ax.scatter([float(p[0]) + dx], [float(p[1])], s=28, color=col, zorder=8, edgecolors=(1,1,1,0.6), linewidths=0.5)
 
                 ellipses_drawn.append((center, w, h, ang))
                 labels_placed.append((float(p[0]), float(p[1])))
