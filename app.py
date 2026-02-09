@@ -5,44 +5,39 @@ import matplotlib.pyplot as plt
 import streamlit as st
 from matplotlib.patches import Ellipse
 
-# ==============
+# ============================
 # Page setup
-# ==============
+# ============================
 st.set_page_config(page_title="Virtual Range", page_icon="⛳", layout="wide")
 
-# Global CSS to match the mockups (dark sidebar + card shell + subtle typography)
+# IMPORTANT: Do NOT hide Streamlit header on mobile; it contains the sidebar toggle.
+# We style, but keep it functional.
+
 st.markdown(
     """
 <style>
-/* Hide Streamlit chrome */
-#MainMenu {visibility: hidden;}
-header {visibility: hidden;}
-footer {visibility: hidden;}
-div[data-testid="stToolbar"] {visibility:hidden; height:0px;}
 /* Page background */
 .stApp { background: #E9EDF2; }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
+/* Sidebar (dark like mockup) */
+section[data-testid="stSidebar"]{
   background: linear-gradient(180deg, #1F2937 0%, #111827 100%);
   border-right: 1px solid rgba(255,255,255,0.08);
 }
 section[data-testid="stSidebar"] * { color: rgba(255,255,255,0.92) !important; }
 section[data-testid="stSidebar"] label { color: rgba(255,255,255,0.80) !important; }
 section[data-testid="stSidebar"] .stMarkdown { color: rgba(255,255,255,0.88) !important; }
-section[data-testid="stSidebar"] [data-baseweb="select"] > div {
+section[data-testid="stSidebar"] [data-baseweb="select"] > div{
   background: rgba(255,255,255,0.08) !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
 }
-section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textarea {
+section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textarea{
   background: rgba(255,255,255,0.06) !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
   color: rgba(255,255,255,0.92) !important;
 }
-/* Toggle/checkbox spacing */
-section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
 
-/* Main shell */
+/* Main shell (card) */
 .vr-shell{
   background: #F7F8FA;
   border: 1px solid rgba(0,0,0,0.10);
@@ -51,7 +46,7 @@ section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
   box-shadow: 0 18px 36px rgba(0,0,0,0.16);
 }
 .vr-topbar{
-  height: 48px;
+  height: 52px;
   background: linear-gradient(180deg, #2B3646 0%, #1F2937 100%);
   display:flex; align-items:center; justify-content:space-between;
   padding: 0 16px;
@@ -59,7 +54,7 @@ section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
 }
 .vr-topbar .left{
   display:flex; align-items:center; gap:10px;
-  font-weight: 800; letter-spacing: -0.02em; font-size: 18px;
+  font-weight: 900; letter-spacing: -0.02em; font-size: 18px;
 }
 .vr-topbar .right{
   display:flex; align-items:center; gap:14px;
@@ -67,7 +62,7 @@ section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
   font-size: 16px;
 }
 .vr-sessionline{
-  height: 36px;
+  height: 38px;
   display:flex; align-items:center; justify-content:center;
   background: #F7F8FA;
   border-bottom: 1px solid rgba(0,0,0,0.08);
@@ -81,11 +76,14 @@ section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
   background: #F1F3F6;
   border-top: 1px solid rgba(0,0,0,0.10);
   display:flex;
+  flex-wrap: wrap;
 }
 .vr-kpi{
   flex: 1;
+  min-width: 160px;
   padding: 12px 14px;
   border-right: 1px solid rgba(0,0,0,0.08);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
 }
 .vr-kpi:last-child{ border-right:none; }
 .vr-kpi .label{ font-size: 11px; color: rgba(0,0,0,0.58); }
@@ -93,7 +91,18 @@ section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
 .vr-kpi .value.small{ font-size: 15px; font-weight: 900; }
 .vr-kpi .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum"; }
 
-/* Make the app content sit nicely */
+/* Make uploader / inputs feel native */
+div[data-testid="stFileUploader"]{
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+textarea{
+  border-radius: 12px !important;
+}
+
+/* Container size */
 .block-container{ padding-top: 0.8rem; padding-bottom: 1.0rem; max-width: 1200px; }
 </style>
 """,
@@ -133,7 +142,6 @@ def detect_datetime_column(df: pd.DataFrame):
     return None
 
 def mahalanobis_filter(df: pd.DataFrame, keep_pct: float) -> pd.DataFrame:
-    """Keep closest keep_pct per club using Mahalanobis distance in (Dir, Carry)."""
     def filt(g):
         if len(g) < 6:
             return g
@@ -146,7 +154,7 @@ def mahalanobis_filter(df: pd.DataFrame, keep_pct: float) -> pd.DataFrame:
         return g[d2 <= cutoff]
     return df.groupby("Type", group_keys=False).apply(filt)
 
-# MVEE (tight enclosing ellipse)
+# Tight enclosing ellipse (MVEE)
 def mvee(P: np.ndarray, tol: float = 1e-4, max_iter: int = 5000):
     P = P.astype(float)
     n, d = P.shape
@@ -250,10 +258,9 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
     return p, "left", "center"
 
 # ============================
-# Plot styling (matches mockups)
+# Plot styling
 # ============================
 def add_background(ax, xlim, ylim):
-    """Soft studio background + faint turf perspective (procedural)."""
     W, H = 900, 520
     img = np.zeros((H, W, 3), dtype=float)
 
@@ -273,13 +280,12 @@ def add_background(ax, xlim, ylim):
 
     ax.imshow(img, extent=[xlim[0], xlim[1], ylim[0], ylim[1]], aspect="auto", zorder=0)
 
-    # converging turf lines
     for i in range(-8, 9):
         ax.plot([i*5.0, i*1.8], [ylim[0], ylim[0] + (ylim[1]-ylim[0])*0.48],
                 color=(0.60, 0.72, 0.62, 0.20), lw=1.0, zorder=1)
 
     for y in np.linspace(ylim[0] + 12, ylim[0] + (ylim[1]-ylim[0])*0.50, 7):
-        ax.plot([xlim[0], xlim[1]], [y, y], color=(0.55, 0.56, 0.58, 0.10), lw=1.0, zorder=1)
+        ax.plot([xlim[0], xlim[1]], [y, y], color=(0.20,0.22,0.25,0.08), lw=1.0, zorder=1)
 
 def plot_virtual_range(df, clubs, session_label: str):
     fig = plt.figure(figsize=(10.5, 5.7))
@@ -291,21 +297,13 @@ def plot_virtual_range(df, clubs, session_label: str):
 
     add_background(ax, xlim, ylim)
 
-    # subtle arcs
     theta = np.linspace(-np.pi/2, np.pi/2, 400)
     for r in range(20, max_y + 1, 20):
         ax.plot(r*np.sin(theta), r*np.cos(theta), color=(0.20,0.22,0.25,0.12), lw=1.0, zorder=2)
 
-    # subtle axis
     ax.axvline(0, color=(0.12,0.13,0.15,0.35), lw=1.1, zorder=3)
 
-    # subtle y "ticks" on both sides like the mockup
-    for r in range(50, max_y + 1, 50):
-        ax.text(xlim[0] + 2, r, f"{r}", fontsize=8, color=(0.20,0.22,0.25,0.35), va="center", zorder=4)
-        ax.text(xlim[1] - 4, r, f"{r}", fontsize=8, color=(0.20,0.22,0.25,0.22), va="center", zorder=4, ha="right")
-
-    # top session label inside plot
-    ax.text(0, ylim[1] - 8, session_label, fontsize=9, color=(0.10,0.11,0.12,0.55),
+    ax.text(0, ylim[1] - 6, session_label, fontsize=9, color=(0.10,0.11,0.12,0.55),
             ha="center", va="top", zorder=4)
 
     markers = {"3W":"o","5H":"s","6I":"P","7I":"^","8I":"X","9I":"D","PW":"v","AW":"v","GW":"v","SW":"x","LW":"x"}
@@ -323,14 +321,10 @@ def plot_virtual_range(df, clubs, session_label: str):
         col = colors.get(c, "#111827")
         mk = markers.get(c, "o")
 
-        # points: small, semi-transparent, light border
-        ax.scatter(
-            sub["Dir_signed"], sub["Carry[yd]"],
-            s=26, marker=mk, color=col, alpha=0.35,
-            edgecolors=(1,1,1,0.35), linewidths=0.5, zorder=5
-        )
+        ax.scatter(sub["Dir_signed"], sub["Carry[yd]"],
+                   s=28, marker=mk, color=col, alpha=0.35,
+                   edgecolors=(1,1,1,0.35), linewidths=0.5, zorder=5)
 
-        # tight ellipse + label just outside
         if len(sub) >= 3:
             params = ellipse_params_from_points(sub[["Dir_signed","Carry[yd]"]].values.astype(float))
             if params:
@@ -341,85 +335,94 @@ def plot_virtual_range(df, clubs, session_label: str):
                 avg_carry = float(sub["Carry[yd]"].mean())
                 txt = f"{int(round(avg_carry))} yd"
                 p, ha, va = pick_label_position(center, w, h, ang, txt, all_points_xy, ellipses_drawn, labels_placed, xlim, ylim)
-                ax.text(
-                    float(p[0]), float(p[1]), txt,
-                    fontsize=10, ha=ha, va=va, color=(0.08,0.09,0.10,0.90),
-                    bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="none", alpha=0.95),
-                    zorder=7
-                )
+                ax.text(float(p[0]), float(p[1]), txt,
+                        fontsize=10, ha=ha, va=va, color=(0.08,0.09,0.10,0.90),
+                        bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="none", alpha=0.95),
+                        zorder=7)
                 ellipses_drawn.append((center, w, h, ang))
                 labels_placed.append((float(p[0]), float(p[1])))
 
-    # clean frame like mockup
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    ax.set_xticks([])
-    ax.set_yticks([])
+    ax.set_xticks([]); ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
     fig.patch.set_facecolor("#E9EDF2")
     return fig
 
 # ============================
-# Sidebar UI (mockup-like)
+# Sidebar controls (optional)
 # ============================
-st.sidebar.markdown("### 🔎 Clubs")
+with st.sidebar:
+    st.markdown("### 🔎 Clubs")
+    compare = st.toggle("Compare", value=False)
 
-compare = st.sidebar.toggle("Compare", value=False)
+    st.markdown("### CORE SHOTS")
+    keep_pct = st.slider("", 0.50, 0.95, 0.70, 0.05)
+    st.markdown("<div style='font-size:11px; color:rgba(255,255,255,0.70); margin-top:6px;'>Mostrando golpes más consistentes</div>", unsafe_allow_html=True)
 
-st.sidebar.markdown("")
-st.sidebar.markdown("### CORE SHOTS")
-keep_pct = st.sidebar.slider("", 0.50, 0.95, 0.70, 0.05)
-st.sidebar.markdown(
-    "<div style='display:flex; justify-content:space-between; font-size:11px; color:rgba(255,255,255,0.65); margin-top:-6px;'>"
-    "<span>50%</span><span>95%</span></div>",
+# ============================
+# MAIN: Always show working input
+# ============================
+st.markdown('<div class="vr-shell">', unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="vr-topbar">
+      <div class="left">🛡️ Virtual Range</div>
+      <div class="right">＋ &nbsp; ◯ &nbsp; 👤</div>
+    </div>
+    """,
     unsafe_allow_html=True
 )
-st.sidebar.markdown("<div style='font-size:11px; color:rgba(255,255,255,0.70); margin-top:8px;'>Mostrando golpes más consistentes</div>", unsafe_allow_html=True)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Datos")
-input_mode = st.sidebar.radio("", ["Pegar CSV", "Subir archivo"], index=0)
+# Inputs (always visible; not inside HTML overlays)
+tabs = st.tabs(["Subir CSV", "Pegar CSV"])
 
 df = None
-if input_mode == "Pegar CSV":
-    txt = st.sidebar.text_area("CSV", height=160, placeholder="Pega el CSV completo aquí…")
-    if txt and len(txt.strip()) >= 50:
-        df = pd.read_csv(io.StringIO(txt.strip().lstrip("\ufeff")))
-else:
-    f = st.sidebar.file_uploader("CSV", type="csv")
-    if f:
+with tabs[0]:
+    f = st.file_uploader("Selecciona el CSV", type="csv", accept_multiple_files=False)
+    if f is not None:
         df = pd.read_csv(f)
 
+with tabs[1]:
+    txt = st.text_area("Pega el CSV completo", height=220, placeholder="Copia desde Golfboy y pega aquí…")
+    if df is None and txt and len(txt.strip()) >= 50:
+        df = pd.read_csv(io.StringIO(txt.strip().lstrip("\ufeff")))
+
 if df is None:
-    st.markdown('<div class="vr-shell"><div class="vr-topbar"><div class="left">🛡️ Virtual Range</div><div class="right">＋ ◯ 👤</div></div><div class="vr-sessionline">Sube un CSV para ver el range</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="vr-sessionline">Sube un CSV para ver el range</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 required = {"Carry[yd]", "Launch Direction", "Type"}
 if not required.issubset(df.columns):
     st.error("CSV inválido: faltan columnas requeridas (Carry[yd], Launch Direction, Type).")
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# Date selection: last N dates
+# Date slider (main, always works)
 dates_used = []
 dt_col = detect_datetime_column(df)
+dates = []
 if dt_col:
     df["_dt"] = pd.to_datetime(df[dt_col], errors="coerce")
     df["_date"] = df["_dt"].dt.date
     dates = sorted(df["_date"].dropna().unique())
-    if len(dates) > 1:
-        n_dates = st.sidebar.slider("Últimas fechas", 1, len(dates), min(len(dates), 3), 1)
-        dates_used = list(dates[-n_dates:])
-        df = df[df["_date"].isin(dates_used)].copy()
-    elif len(dates) == 1:
-        dates_used = [dates[0]]
-        df = df[df["_date"] == dates[0]].copy()
+
+if len(dates) > 1:
+    n_dates = st.slider("Últimas fechas", 1, len(dates), min(len(dates), 3), 1)
+    dates_used = list(dates[-n_dates:])
+    df = df[df["_date"].isin(dates_used)].copy()
+elif len(dates) == 1:
+    dates_used = [dates[0]]
+    df = df[df["_date"] == dates[0]].copy()
 
 # Clean + core filter
 df["Dir_signed"] = df["Launch Direction"].apply(parse_direction)
 df = df.dropna(subset=["Carry[yd]", "Dir_signed", "Type"]).copy()
 if df.empty:
     st.error("No quedaron golpes válidos.")
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 df = mahalanobis_filter(df, keep_pct)
@@ -427,29 +430,20 @@ df = mahalanobis_filter(df, keep_pct)
 clubs_all = sorted(df["Type"].unique())
 if not clubs_all:
     st.error("No hay datos luego del filtro.")
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# Club selection widgets
-def club_label(c):
-    icon = "🏌️"
-    if c.endswith("I"): icon = "🏌️"
-    if c in ("3W","5W","7W"): icon = "🪵"
-    if c.endswith("H"): icon = "🪄"
-    if c in ("PW","AW","GW","SW","LW"): icon = "🧱"
-    return f"{c}"
-
+# Club selection (main)
 if compare:
-    clubs_plot = st.sidebar.multiselect("", clubs_all, default=clubs_all[:min(len(clubs_all), 4)])
+    clubs_plot = st.multiselect("Palos (comparar)", clubs_all, default=clubs_all[:min(len(clubs_all), 4)])
     if not clubs_plot:
         clubs_plot = clubs_all[:1]
     focus_club = clubs_plot[0]
 else:
-    focus_club = st.sidebar.selectbox("", clubs_all, index=0)
+    focus_club = st.selectbox("Palo", clubs_all, index=0)
     clubs_plot = [focus_club]
 
-# ============================
-# KPIs (focus club)
-# ============================
+# KPIs
 dff = df[df["Type"] == focus_club].copy()
 shots = int(len(dff)) if len(dff) else 0
 carry_avg = float(dff["Carry[yd]"].mean()) if shots else float("nan")
@@ -463,30 +457,17 @@ if not np.isnan(lr_p84) and not np.isnan(depth_p84):
     if score > 14: disp = "Wide"
     elif score > 10: disp = "OK"
 
-# Session line
 n_dates_show = len(dates_used) if dates_used else 1
 session_label = f"Session: Last {n_dates_show} dates  ·  Core: {int(round(keep_pct*100))}%  ·  Cali"
-
-# ============================
-# Render like mockup
-# ============================
-st.markdown('<div class="vr-shell">', unsafe_allow_html=True)
-st.markdown(
-    """
-    <div class="vr-topbar">
-      <div class="left">🛡️ Virtual Range</div>
-      <div class="right">＋ &nbsp; 🔍 &nbsp; 👤</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 st.markdown(f'<div class="vr-sessionline">{session_label}</div>', unsafe_allow_html=True)
 
+# Plot
 st.markdown('<div class="vr-plotpad">', unsafe_allow_html=True)
 fig = plot_virtual_range(df[df["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label)
 st.pyplot(fig, clear_figure=True, use_container_width=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
+# KPI bar
 st.markdown(
     f"""
     <div class="vr-kpibar">
@@ -516,7 +497,6 @@ st.markdown(
       </div>
     </div>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
-
 st.markdown("</div>", unsafe_allow_html=True)
