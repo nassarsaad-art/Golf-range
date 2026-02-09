@@ -275,6 +275,98 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
     p[1] = min(max(p[1], ylim[0] + 1), ylim[1] - 1)
     return p, "left", "center"
 
+
+def build_style_maps(clubs):
+    """Deterministic unique color/marker per club (for consistent visuals across tabs)."""
+    base_palette = [
+        "#2563EB", "#16A34A", "#EF4444", "#06B6D4", "#8B5CF6", "#F59E0B",
+        "#0F766E", "#EC4899", "#10B981", "#F97316", "#84CC16", "#A855F7",
+        "#14B8A6", "#DC2626", "#1D4ED8", "#65A30D"
+    ]
+    markers = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "8"]
+
+    clubs_unique = list(dict.fromkeys(list(clubs)))
+    color_map = {c: base_palette[i % len(base_palette)] for i, c in enumerate(clubs_unique)}
+    marker_map = {c: markers[i % len(markers)] for i, c in enumerate(clubs_unique)}
+    return color_map, marker_map
+
+def detect_height_column(df: pd.DataFrame):
+    """Try common apex/height column names."""
+    candidates = [
+        "Height[m]", "Height (m)", "Height", "Apex Height", "Apex Height[m]",
+        "Peak Height", "Peak Height[m]", "Max Height", "Max Height[m]",
+        "Apex", "Apex[m]", "Max Height (m)"
+    ]
+    for c in candidates:
+        if c in df.columns:
+            return c
+    for c in df.columns:
+        lc = str(c).lower()
+        if ("height" in lc) or ("apex" in lc) or ("peak" in lc):
+            return c
+    return None
+
+def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, session_label: str, portrait: bool = True):
+    """
+    Side view: X=carry (yd), Y=height (m).
+    We approximate the mean flight with a parabola that peaks at mid-carry:
+        y(x) = 4*h*(x/d)*(1-x/d), with y(0)=0, y(d)=0, peak=h at x=d/2.
+    """
+    fig = plt.figure(figsize=(7.2, 10.0) if portrait else (12.0, 6.2))
+    ax = plt.gca()
+
+    ax.set_facecolor("#F7F8FA")
+    for spine in ax.spines.values():
+        spine.set_color((0,0,0,0.10))
+
+    # Build curves
+    max_d = 0.0
+    max_h = 0.0
+
+    for c in clubs:
+        sub = df_core[df_core["Type"] == c].copy()
+        if sub.empty:
+            continue
+        d = float(sub["Carry[yd]"].mean())
+        h = float(pd.to_numeric(sub[height_col], errors="coerce").dropna().mean())
+
+        if not np.isfinite(d) or not np.isfinite(h) or d <= 0 or h <= 0:
+            continue
+
+        max_d = max(max_d, d)
+        max_h = max(max_h, h)
+
+        x = np.linspace(0, d, 140)
+        y = 4.0*h*(x/d)*(1.0 - x/d)
+
+        col = color_map.get(c, "#111827")
+        ax.plot(x, y, lw=2.6, color=col, alpha=0.90, zorder=3)
+        # Apex marker + label
+        ax.scatter([d/2], [h], s=42, color=col, zorder=4, edgecolors=(1,1,1,0.6), linewidths=0.6)
+        ax.text(d/2, h + max(0.6, 0.04*h), f"{c}  {int(round(d))}yd / {int(round(h))}m",
+                fontsize=9, color=(0.08,0.09,0.10,0.88),
+                ha="center", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.30", facecolor="white", edgecolor=col, linewidth=1.6, alpha=0.95),
+                zorder=5)
+
+    if max_d <= 0:
+        ax.text(0.5, 0.5, "No hay datos suficientes para dibujar trayectorias.",
+                transform=ax.transAxes, ha="center", va="center", color=(0,0,0,0.55))
+        return fig
+
+    # Axes limits + grid
+    ax.set_xlim(0, max_d*1.08)
+    ax.set_ylim(0, max_h*1.25)
+    ax.grid(True, color=(0.1,0.1,0.12,0.10), linewidth=1.0, zorder=1)
+    ax.set_xlabel("Carry (yd)")
+    ax.set_ylabel("Altura (m)")
+    ax.set_title("Trayectoria promedio por palo (Carry vs Altura)", fontsize=12, color=(0,0,0,0.68), pad=12)
+
+    ax.text(0.5, 1.01, session_label, transform=ax.transAxes,
+            ha="center", va="bottom", fontsize=9, color=(0,0,0,0.45))
+
+    return fig
+
 # ============================
 # Plot styling (portrait-friendly)
 # ============================
@@ -318,29 +410,46 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
 
     add_background(ax, xlim, ylim)
 
+    # Arcs (like launch monitors)
     theta = np.linspace(-np.pi/2, np.pi/2, 400)
+    arc_color = (0.20, 0.22, 0.25, 0.14)
     for r in range(20, max_y + 1, 20):
-        ax.plot(r*np.sin(theta), r*np.cos(theta), color=(0.20,0.22,0.25,0.12), lw=1.0, zorder=2)
+        xs = r*np.sin(theta)
+        ys = r*np.cos(theta)
+        ax.plot(xs, ys, color=arc_color, lw=1.0, zorder=2)
 
-    ax.axvline(0, color=(0.12,0.13,0.15,0.35), lw=1.1, zorder=3)
+        # Label each arc on the LEFT edge, just above the arc
+        x_lab = xlim[0] + 1.5
+        # y on arc at that x (approx)
+        # arc equation: y = sqrt(r^2 - x^2) for |x|<=r
+        if abs(x_lab) < r:
+            y_lab = float(np.sqrt(max(r*r - x_lab*x_lab, 0.0))) + 1.4
+            if ylim[0] <= y_lab <= ylim[1]:
+                ax.text(x_lab, y_lab, f"{r}",
+                        fontsize=8, color=(0.20,0.22,0.25,0.42),
+                        ha="left", va="bottom", zorder=4)
 
+    # Center line
+    ax.axvline(0, color=(0.12, 0.13, 0.15, 0.35), lw=1.1, zorder=3)
+
+    # Session label
     ax.text(0, ylim[1] - 6, session_label, fontsize=9, color=(0.10,0.11,0.12,0.55),
             ha="center", va="top", zorder=4)
 
-    markers = {"3W":"o","5H":"s","6I":"P","7I":"^","8I":"X","9I":"D","PW":"v","AW":"v","GW":"v","SW":"x","LW":"x"}
-    colors  = {"3W":"#2563EB","5H":"#16A34A","6I":"#0F766E","7I":"#2563EB","8I":"#06B6D4","9I":"#EF4444",
-               "PW":"#111827","AW":"#111827","GW":"#111827","SW":"#7C2D12","LW":"#7C2D12"}
+        # Ensure unique colors per club (shared palette)
+    clubs_unique = list(dict.fromkeys(clubs))  # preserve order
+    color_map, marker_map = build_style_maps(clubs_unique)
 
     all_points_xy = df[["Dir_signed","Carry[yd]"]].values.astype(float) if len(df) else np.zeros((0,2))
     ellipses_drawn, labels_placed = [], []
 
-    for c in clubs:
+    for c in clubs_unique:
         sub = df[df["Type"] == c]
         if sub.empty:
             continue
 
-        col = colors.get(c, "#111827")
-        mk = markers.get(c, "o")
+        col = color_map[c]
+        mk = marker_map[c]
 
         ax.scatter(sub["Dir_signed"], sub["Carry[yd]"],
                    s=28, marker=mk, color=col, alpha=0.35,
@@ -350,16 +459,22 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
             params = ellipse_params_from_points(sub[["Dir_signed","Carry[yd]"]].values.astype(float))
             if params:
                 center, w, h, ang = params
-                ax.add_patch(Ellipse(center, w, h, angle=ang, fill=False, linewidth=2.0,
-                                     edgecolor=col, alpha=0.85, zorder=6))
+                ax.add_patch(Ellipse(center, w, h, angle=ang, fill=False, linewidth=2.2,
+                                     edgecolor=col, alpha=0.90, zorder=6))
 
                 avg_carry = float(sub["Carry[yd]"].mean())
                 txt = f"{int(round(avg_carry))} yd"
                 p, ha, va = pick_label_position(center, w, h, ang, txt, all_points_xy, ellipses_drawn, labels_placed, xlim, ylim)
-                ax.text(float(p[0]), float(p[1]), txt,
-                        fontsize=10, ha=ha, va=va, color=(0.08,0.09,0.10,0.90),
-                        bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="none", alpha=0.95),
+
+                # Colored chip: white pill with colored border + small colored dot
+                ax.text(float(p[0]), float(p[1]), f"  {txt}",
+                        fontsize=10, ha=ha, va=va, color=(0.08,0.09,0.10,0.92),
+                        bbox=dict(boxstyle="round,pad=0.38", facecolor="white", edgecolor=col, linewidth=1.8, alpha=0.97),
                         zorder=7)
+                # colored dot inside chip (placed slightly left of text anchor)
+                dx = -1.25 if ha == "left" else (1.25 if ha == "right" else 0.0)
+                ax.scatter([float(p[0]) + dx], [float(p[1])], s=28, color=col, zorder=8, edgecolors=(1,1,1,0.6), linewidths=0.5)
+
                 ellipses_drawn.append((center, w, h, ang))
                 labels_placed.append((float(p[0]), float(p[1])))
 
@@ -422,7 +537,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tabs = st.tabs(["Virtual Range", "Métricas"])
+tabs = st.tabs(["Virtual Range", "Trayectoria", "Métricas"])
 
 if df is None:
     # Minimal empty state: keep UI clean; no big callouts.
@@ -504,9 +619,30 @@ with tabs[0]:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================
-# Tab 2: Metrics (table)
+# Tab 2: Trayectoria (Carry vs Altura)
 # ============================
 with tabs[1]:
+    height_col = detect_height_column(df_core)
+    if height_col is None:
+        st.warning("Este CSV no trae una columna de altura/apex (Height/Apex).")
+    else:
+        # Consistent styles
+        color_map, marker_map = build_style_maps(clubs_plot)
+        fig2 = plot_flight_profiles(
+            df_core[df_core["Type"].isin(clubs_plot)],
+            clubs_plot,
+            color_map,
+            marker_map,
+            height_col=height_col,
+            session_label=session_label,
+            portrait=portrait
+        )
+        st.pyplot(fig2, clear_figure=True, use_container_width=True)
+
+# ============================
+# Tab 2: Metrics (table)
+# ============================
+with tabs[2]:
     rows = []
     for c in clubs_all:
         sub = df_core[df_core["Type"] == c].copy()
