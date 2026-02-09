@@ -1,55 +1,108 @@
 import io
-import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from matplotlib.patches import Ellipse
 
-# ---------------- Page / Style ----------------
+# ==============
+# Page setup
+# ==============
 st.set_page_config(page_title="Virtual Range", page_icon="⛳", layout="wide")
 
+# Global CSS to match the mockups (dark sidebar + card shell + subtle typography)
 st.markdown(
     """
-    <style>
-      .block-container {padding-top: 1.2rem; padding-bottom: 1.2rem;}
-      h1, h2, h3 {letter-spacing: -0.02em;}
-      .vr-card {
-        background: #F7F8FA;
-        border: 1px solid rgba(0,0,0,0.06);
-        border-radius: 14px;
-        padding: 14px 16px;
-        box-shadow: 0 1px 0 rgba(0,0,0,0.03);
-      }
-      .vr-kpi {
-        font-size: 13px;
-        color: rgba(0,0,0,0.65);
-        margin-bottom: 2px;
-      }
-      .vr-kpi strong {
-        font-size: 20px;
-        color: rgba(0,0,0,0.92);
-        font-weight: 700;
-        letter-spacing: -0.01em;
-      }
-      .vr-pill {
-        display: inline-block;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(0,0,0,0.08);
-        background: white;
-        font-size: 12px;
-        color: rgba(0,0,0,0.70);
-        margin-right: 8px;
-      }
-      .vr-subtle {color: rgba(0,0,0,0.60); font-size: 12px;}
-      .stRadio > div {gap: 6px;}
-    </style>
-    """,
-    unsafe_allow_html=True,
+<style>
+/* Hide Streamlit chrome */
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+div[data-testid="stToolbar"] {visibility:hidden; height:0px;}
+/* Page background */
+.stApp { background: #E9EDF2; }
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #1F2937 0%, #111827 100%);
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+section[data-testid="stSidebar"] * { color: rgba(255,255,255,0.92) !important; }
+section[data-testid="stSidebar"] label { color: rgba(255,255,255,0.80) !important; }
+section[data-testid="stSidebar"] .stMarkdown { color: rgba(255,255,255,0.88) !important; }
+section[data-testid="stSidebar"] [data-baseweb="select"] > div {
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+}
+section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textarea {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  color: rgba(255,255,255,0.92) !important;
+}
+/* Toggle/checkbox spacing */
+section[data-testid="stSidebar"] .stRadio > div { gap: 6px; }
+
+/* Main shell */
+.vr-shell{
+  background: #F7F8FA;
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 18px 36px rgba(0,0,0,0.16);
+}
+.vr-topbar{
+  height: 48px;
+  background: linear-gradient(180deg, #2B3646 0%, #1F2937 100%);
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 0 16px;
+  color: rgba(255,255,255,0.92);
+}
+.vr-topbar .left{
+  display:flex; align-items:center; gap:10px;
+  font-weight: 800; letter-spacing: -0.02em; font-size: 18px;
+}
+.vr-topbar .right{
+  display:flex; align-items:center; gap:14px;
+  color: rgba(255,255,255,0.78);
+  font-size: 16px;
+}
+.vr-sessionline{
+  height: 36px;
+  display:flex; align-items:center; justify-content:center;
+  background: #F7F8FA;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  color: rgba(0,0,0,0.62);
+  font-size: 12px;
+}
+.vr-plotpad{ padding: 8px 14px 0 14px; }
+
+/* KPI bar */
+.vr-kpibar{
+  background: #F1F3F6;
+  border-top: 1px solid rgba(0,0,0,0.10);
+  display:flex;
+}
+.vr-kpi{
+  flex: 1;
+  padding: 12px 14px;
+  border-right: 1px solid rgba(0,0,0,0.08);
+}
+.vr-kpi:last-child{ border-right:none; }
+.vr-kpi .label{ font-size: 11px; color: rgba(0,0,0,0.58); }
+.vr-kpi .value{ font-size: 18px; font-weight: 900; color: rgba(0,0,0,0.86); letter-spacing: -0.01em; }
+.vr-kpi .value.small{ font-size: 15px; font-weight: 900; }
+.vr-kpi .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum"; }
+
+/* Make the app content sit nicely */
+.block-container{ padding-top: 0.8rem; padding-bottom: 1.0rem; max-width: 1200px; }
+</style>
+""",
+    unsafe_allow_html=True
 )
 
-# ---------------- Helpers ----------------
+# ============================
+# Helpers
+# ============================
 def parse_direction(val):
     if pd.isna(val):
         return np.nan
@@ -61,16 +114,14 @@ def parse_direction(val):
         if v.startswith("R"):
             try: return float(v[1:])
             except: return np.nan
-        try:
-            return float(v)
-        except:
-            return np.nan
+        try: return float(v)
+        except: return np.nan
     try:
         return float(val)
     except:
         return np.nan
 
-def detect_datetime_column(df):
+def detect_datetime_column(df: pd.DataFrame):
     preferred = ["Time", "Date", "Datetime", "Timestamp"]
     for c in preferred:
         if c in df.columns:
@@ -81,7 +132,7 @@ def detect_datetime_column(df):
             return c
     return None
 
-def mahalanobis_filter(df, keep_pct):
+def mahalanobis_filter(df: pd.DataFrame, keep_pct: float) -> pd.DataFrame:
     """Keep closest keep_pct per club using Mahalanobis distance in (Dir, Carry)."""
     def filt(g):
         if len(g) < 6:
@@ -95,8 +146,8 @@ def mahalanobis_filter(df, keep_pct):
         return g[d2 <= cutoff]
     return df.groupby("Type", group_keys=False).apply(filt)
 
-def mvee(P, tol=1e-4, max_iter=5000):
-    """Minimum Volume Enclosing Ellipse (MVEE) via Khachiyan algorithm."""
+# MVEE (tight enclosing ellipse)
+def mvee(P: np.ndarray, tol: float = 1e-4, max_iter: int = 5000):
     P = P.astype(float)
     n, d = P.shape
     if n < 2:
@@ -121,7 +172,7 @@ def mvee(P, tol=1e-4, max_iter=5000):
     A = np.linalg.pinv(S) / d
     return c, A
 
-def ellipse_params_from_points(xy):
+def ellipse_params_from_points(xy: np.ndarray):
     if xy.shape[0] < 3:
         return None
     c, A = mvee(xy)
@@ -151,11 +202,10 @@ def point_inside_ellipse(pt, center, width, height, angle_deg, pad=0.0):
     return (u[0]**2)/(a*a) + (u[1]**2)/(b*b) <= 1.0
 
 def pick_label_position(center, width, height, angle_deg, text, all_points_xy, other_ellipses, other_labels, xlim, ylim):
-    pad_x = 2.2
-    pad_y = 2.2
-    candidates = [0, 35, -35, 90, -90, 145, -145, 180]
+    pad_x, pad_y = 2.0, 2.0
+    candidates = [0, 30, -30, 90, -90, 150, -150, 180]
     R = rotation_matrix(angle_deg)
-    label_r = 3.4 + 0.22 * max(0, len(text) - 6)
+    label_r = 3.3 + 0.20 * max(0, len(text) - 6)
     a = width/2.0
     b = height/2.0
 
@@ -185,17 +235,13 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
         local = np.array([(a + pad_x) * np.cos(t), (b + pad_y) * np.sin(t)])
         p = (np.array(center) + R @ local).astype(float)
 
-        if not in_bounds(p):
-            continue
-        if not far_from_points(p):
-            continue
-        if not far_from_labels(p):
-            continue
-        if not not_inside_other_ellipses(p):
-            continue
+        if not in_bounds(p): continue
+        if not far_from_points(p): continue
+        if not far_from_labels(p): continue
+        if not not_inside_other_ellipses(p): continue
 
-        ha = "left" if deg in (0, 35, -35) else ("right" if deg in (180, 145, -145) else "center")
-        va = "bottom" if deg in (90, 35, 145) else ("top" if deg in (-90, -35, -145) else "center")
+        ha = "left" if deg in (0, 30, -30) else ("right" if deg in (180, 150, -150) else "center")
+        va = "bottom" if deg in (90, 30, 150) else ("top" if deg in (-90, -30, -150) else "center")
         return p, ha, va
 
     p = np.array([center[0] + a + pad_x, center[1]])
@@ -203,29 +249,71 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
     p[1] = min(max(p[1], ylim[0] + 1), ylim[1] - 1)
     return p, "left", "center"
 
-def plot_virtual_range(df, clubs, title, show_ellipses):
-    fig = plt.figure(figsize=(8.2, 10.0))
+# ============================
+# Plot styling (matches mockups)
+# ============================
+def add_background(ax, xlim, ylim):
+    """Soft studio background + faint turf perspective (procedural)."""
+    W, H = 900, 520
+    img = np.zeros((H, W, 3), dtype=float)
+
+    top = np.array([0.96, 0.97, 0.98])
+    mid = np.array([0.93, 0.94, 0.96])
+    grass = np.array([0.78, 0.86, 0.78])
+
+    split = int(H * 0.58)
+    for y in range(H):
+        if y < split:
+            tt = y / max(1, split - 1)
+            col = top * (1 - tt) + mid * tt
+        else:
+            tt = (y - split) / max(1, (H - split - 1))
+            col = mid * (1 - tt) + grass * tt
+        img[y, :, :] = col
+
+    ax.imshow(img, extent=[xlim[0], xlim[1], ylim[0], ylim[1]], aspect="auto", zorder=0)
+
+    # converging turf lines
+    for i in range(-8, 9):
+        ax.plot([i*5.0, i*1.8], [ylim[0], ylim[0] + (ylim[1]-ylim[0])*0.48],
+                color=(0.60, 0.72, 0.62, 0.20), lw=1.0, zorder=1)
+
+    for y in np.linspace(ylim[0] + 12, ylim[0] + (ylim[1]-ylim[0])*0.50, 7):
+        ax.plot([xlim[0], xlim[1]], [y, y], color=(0.55, 0.56, 0.58, 0.10), lw=1.0, zorder=1)
+
+def plot_virtual_range(df, clubs, session_label: str):
+    fig = plt.figure(figsize=(10.5, 5.7))
     ax = plt.gca()
 
-    max_y = int(df["Carry[yd]"].max()//20*20 + 20) if len(df) else 200
     xlim = (-40, 40)
+    max_y = int(df["Carry[yd]"].max()//20*20 + 20) if len(df) else 220
     ylim = (0, max_y + 10)
 
-    # Soft arcs
+    add_background(ax, xlim, ylim)
+
+    # subtle arcs
     theta = np.linspace(-np.pi/2, np.pi/2, 400)
     for r in range(20, max_y + 1, 20):
-        ax.plot(r*np.sin(theta), r*np.cos(theta), color=(0.82,0.83,0.86,0.85), lw=0.8)
-        ax.text(0, r+1, f"{r} yd", ha="center", fontsize=8, color=(0.35,0.36,0.38,0.9))
+        ax.plot(r*np.sin(theta), r*np.cos(theta), color=(0.20,0.22,0.25,0.12), lw=1.0, zorder=2)
 
-    # Axis line
-    ax.axvline(0, color=(0.1,0.1,0.1,0.85), lw=1.0)
+    # subtle axis
+    ax.axvline(0, color=(0.12,0.13,0.15,0.35), lw=1.1, zorder=3)
 
-    markers = {"3W":"o","5H":"s","6I":"P","7I":"^","8I":"X","9I":"D","AW":"v","PW":"v","GW":"v","SW":"x","LW":"x"}
-    colors  = {"3W":"#2563EB","5H":"#16A34A","6I":"#0F766E","7I":"#F59E0B","8I":"#06B6D4","9I":"#EF4444","AW":"#7C3AED","PW":"#7C3AED","GW":"#7C3AED","SW":"#7C2D12","LW":"#7C2D12"}
+    # subtle y "ticks" on both sides like the mockup
+    for r in range(50, max_y + 1, 50):
+        ax.text(xlim[0] + 2, r, f"{r}", fontsize=8, color=(0.20,0.22,0.25,0.35), va="center", zorder=4)
+        ax.text(xlim[1] - 4, r, f"{r}", fontsize=8, color=(0.20,0.22,0.25,0.22), va="center", zorder=4, ha="right")
+
+    # top session label inside plot
+    ax.text(0, ylim[1] - 8, session_label, fontsize=9, color=(0.10,0.11,0.12,0.55),
+            ha="center", va="top", zorder=4)
+
+    markers = {"3W":"o","5H":"s","6I":"P","7I":"^","8I":"X","9I":"D","PW":"v","AW":"v","GW":"v","SW":"x","LW":"x"}
+    colors  = {"3W":"#2563EB","5H":"#16A34A","6I":"#0F766E","7I":"#2563EB","8I":"#06B6D4","9I":"#EF4444",
+               "PW":"#111827","AW":"#111827","GW":"#111827","SW":"#7C2D12","LW":"#7C2D12"}
 
     all_points_xy = df[["Dir_signed","Carry[yd]"]].values.astype(float) if len(df) else np.zeros((0,2))
-    ellipses_drawn = []
-    labels_placed = []
+    ellipses_drawn, labels_placed = [], []
 
     for c in clubs:
         sub = df[df["Type"] == c]
@@ -235,77 +323,76 @@ def plot_virtual_range(df, clubs, title, show_ellipses):
         col = colors.get(c, "#111827")
         mk = markers.get(c, "o")
 
-        ax.scatter(sub["Dir_signed"], sub["Carry[yd]"], marker=mk, color=col, alpha=0.82, s=36, edgecolors="none")
+        # points: small, semi-transparent, light border
+        ax.scatter(
+            sub["Dir_signed"], sub["Carry[yd]"],
+            s=26, marker=mk, color=col, alpha=0.35,
+            edgecolors=(1,1,1,0.35), linewidths=0.5, zorder=5
+        )
 
-        avg_carry = float(sub["Carry[yd]"].mean())
-        avg_txt = f"{int(round(avg_carry))} yd"
-
-        if show_ellipses and len(sub) >= 3:
+        # tight ellipse + label just outside
+        if len(sub) >= 3:
             params = ellipse_params_from_points(sub[["Dir_signed","Carry[yd]"]].values.astype(float))
             if params:
                 center, w, h, ang = params
-                ax.add_patch(Ellipse(center, w, h, angle=ang, fill=False, linewidth=2, edgecolor=col, alpha=0.95))
+                ax.add_patch(Ellipse(center, w, h, angle=ang, fill=False, linewidth=2.0,
+                                     edgecolor=col, alpha=0.85, zorder=6))
 
-                p, ha, va = pick_label_position(
-                    center=center, width=w, height=h, angle_deg=ang, text=avg_txt,
-                    all_points_xy=all_points_xy,
-                    other_ellipses=ellipses_drawn,
-                    other_labels=labels_placed,
-                    xlim=xlim, ylim=ylim
-                )
+                avg_carry = float(sub["Carry[yd]"].mean())
+                txt = f"{int(round(avg_carry))} yd"
+                p, ha, va = pick_label_position(center, w, h, ang, txt, all_points_xy, ellipses_drawn, labels_placed, xlim, ylim)
                 ax.text(
-                    float(p[0]), float(p[1]), avg_txt,
-                    fontsize=10, ha=ha, va=va, color=col, fontweight="bold",
-                    bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="none", alpha=0.80),
+                    float(p[0]), float(p[1]), txt,
+                    fontsize=10, ha=ha, va=va, color=(0.08,0.09,0.10,0.90),
+                    bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="none", alpha=0.95),
+                    zorder=7
                 )
                 ellipses_drawn.append((center, w, h, ang))
                 labels_placed.append((float(p[0]), float(p[1])))
 
+    # clean frame like mockup
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    ax.set_xlabel("Dirección (yd)  ← Izq | Der →")
-    ax.set_ylabel("Carry (yd)")
-    ax.set_title(title)
-    ax.set_facecolor("#F7F8FA")
-    fig.patch.set_facecolor("white")
-    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    fig.patch.set_facecolor("#E9EDF2")
     return fig
 
-def summarize_session(df, keep_pct, dates_used):
-    parts = []
-    if dates_used:
-        parts.append(f"Last {len(dates_used)} date(s)")
-    parts.append(f"Core {int(round(keep_pct*100))}%")
-    return " • ".join(parts)
+# ============================
+# Sidebar UI (mockup-like)
+# ============================
+st.sidebar.markdown("### 🔎 Clubs")
 
-# ---------------- Sidebar Controls ----------------
-st.sidebar.markdown("### Controles")
+compare = st.sidebar.toggle("Compare", value=False)
 
-# Core filter always on (as you requested earlier)
-keep_pct = st.sidebar.slider("Core shots", 0.50, 0.95, 0.70, 0.05)
-
-show_ellipses = st.sidebar.checkbox("Óvalos", True)
-
-view_mode = st.sidebar.radio("Vista", ["Un palo", "Comparar"], index=0)
+st.sidebar.markdown("")
+st.sidebar.markdown("### CORE SHOTS")
+keep_pct = st.sidebar.slider("", 0.50, 0.95, 0.70, 0.05)
+st.sidebar.markdown(
+    "<div style='display:flex; justify-content:space-between; font-size:11px; color:rgba(255,255,255,0.65); margin-top:-6px;'>"
+    "<span>50%</span><span>95%</span></div>",
+    unsafe_allow_html=True
+)
+st.sidebar.markdown("<div style='font-size:11px; color:rgba(255,255,255,0.70); margin-top:8px;'>Mostrando golpes más consistentes</div>", unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Datos")
-input_mode = st.sidebar.radio("Entrada", ["Pegar CSV", "Subir archivo"], index=0)
+input_mode = st.sidebar.radio("", ["Pegar CSV", "Subir archivo"], index=0)
 
-# ---------------- Data load ----------------
 df = None
 if input_mode == "Pegar CSV":
-    txt = st.sidebar.text_area("Pega el CSV completo", height=180)
+    txt = st.sidebar.text_area("CSV", height=160, placeholder="Pega el CSV completo aquí…")
     if txt and len(txt.strip()) >= 50:
         df = pd.read_csv(io.StringIO(txt.strip().lstrip("\ufeff")))
 else:
-    f = st.sidebar.file_uploader("Sube CSV", type="csv")
+    f = st.sidebar.file_uploader("CSV", type="csv")
     if f:
         df = pd.read_csv(f)
 
 if df is None:
-    st.markdown("## ⛳ Virtual Range")
-    st.markdown('<span class="vr-subtle">Pega el CSV en la barra lateral o súbelo para ver el range.</span>', unsafe_allow_html=True)
+    st.markdown('<div class="vr-shell"><div class="vr-topbar"><div class="left">🛡️ Virtual Range</div><div class="right">＋ ◯ 👤</div></div><div class="vr-sessionline">Sube un CSV para ver el range</div></div>', unsafe_allow_html=True)
     st.stop()
 
 required = {"Carry[yd]", "Launch Direction", "Type"}
@@ -313,134 +400,123 @@ if not required.issubset(df.columns):
     st.error("CSV inválido: faltan columnas requeridas (Carry[yd], Launch Direction, Type).")
     st.stop()
 
-# Date filtering (last N dates)
-dates_used = None
+# Date selection: last N dates
+dates_used = []
 dt_col = detect_datetime_column(df)
 if dt_col:
     df["_dt"] = pd.to_datetime(df[dt_col], errors="coerce")
     df["_date"] = df["_dt"].dt.date
     dates = sorted(df["_date"].dropna().unique())
-    if len(dates) >= 2:
-        n = st.sidebar.slider("Últimas fechas", 1, len(dates), min(len(dates), 5), 1)
-        dates_used = list(dates[-n:])
+    if len(dates) > 1:
+        n_dates = st.sidebar.slider("Últimas fechas", 1, len(dates), min(len(dates), 3), 1)
+        dates_used = list(dates[-n_dates:])
         df = df[df["_date"].isin(dates_used)].copy()
     elif len(dates) == 1:
         dates_used = [dates[0]]
         df = df[df["_date"] == dates[0]].copy()
 
-# Clean + filter
+# Clean + core filter
 df["Dir_signed"] = df["Launch Direction"].apply(parse_direction)
 df = df.dropna(subset=["Carry[yd]", "Dir_signed", "Type"]).copy()
 if df.empty:
-    st.error("No quedaron golpes válidos con los filtros actuales.")
+    st.error("No quedaron golpes válidos.")
     st.stop()
 
 df = mahalanobis_filter(df, keep_pct)
 
 clubs_all = sorted(df["Type"].unique())
 if not clubs_all:
-    st.error("No hay datos luego de filtrar el core.")
+    st.error("No hay datos luego del filtro.")
     st.stop()
 
-# Club selection
-default_focus = clubs_all[0]
-if view_mode == "Un palo":
-    club_focus = st.sidebar.selectbox("Palo", clubs_all, index=0)
-    clubs_plot = [club_focus]
-else:
-    clubs_plot = st.sidebar.multiselect("Palos", clubs_all, default=clubs_all)
+# Club selection widgets
+def club_label(c):
+    icon = "🏌️"
+    if c.endswith("I"): icon = "🏌️"
+    if c in ("3W","5W","7W"): icon = "🪵"
+    if c.endswith("H"): icon = "🪄"
+    if c in ("PW","AW","GW","SW","LW"): icon = "🧱"
+    return f"{c}"
 
-# ---------------- Header ----------------
-session_line = summarize_session(df, keep_pct, dates_used)
+if compare:
+    clubs_plot = st.sidebar.multiselect("", clubs_all, default=clubs_all[:min(len(clubs_all), 4)])
+    if not clubs_plot:
+        clubs_plot = clubs_all[:1]
+    focus_club = clubs_plot[0]
+else:
+    focus_club = st.sidebar.selectbox("", clubs_all, index=0)
+    clubs_plot = [focus_club]
+
+# ============================
+# KPIs (focus club)
+# ============================
+dff = df[df["Type"] == focus_club].copy()
+shots = int(len(dff)) if len(dff) else 0
+carry_avg = float(dff["Carry[yd]"].mean()) if shots else float("nan")
+carry_med = float(np.median(dff["Carry[yd]"].values)) if shots else float("nan")
+lr_p84 = float(np.quantile(np.abs(dff["Dir_signed"].values), 0.84)) if shots else float("nan")
+depth_p84 = float(np.quantile(np.abs(dff["Carry[yd]"].values - carry_med), 0.84)) if shots else float("nan")
+
+disp = "Tight"
+if not np.isnan(lr_p84) and not np.isnan(depth_p84):
+    score = lr_p84 + 0.6 * depth_p84
+    if score > 14: disp = "Wide"
+    elif score > 10: disp = "OK"
+
+# Session line
+n_dates_show = len(dates_used) if dates_used else 1
+session_label = f"Session: Last {n_dates_show} dates  ·  Core: {int(round(keep_pct*100))}%  ·  Cali"
+
+# ============================
+# Render like mockup
+# ============================
+st.markdown('<div class="vr-shell">', unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="vr-topbar">
+      <div class="left">🛡️ Virtual Range</div>
+      <div class="right">＋ &nbsp; 🔍 &nbsp; 👤</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.markdown(f'<div class="vr-sessionline">{session_label}</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="vr-plotpad">', unsafe_allow_html=True)
+fig = plot_virtual_range(df[df["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label)
+st.pyplot(fig, clear_figure=True, use_container_width=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
 st.markdown(
     f"""
-    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:14px;">
-      <div>
-        <h1 style="margin-bottom:0.1rem;">⛳ Virtual Range</h1>
-        <div class="vr-subtle">{session_line}</div>
+    <div class="vr-kpibar">
+      <div class="vr-kpi">
+        <div class="label">{focus_club}</div>
+        <div class="value mono">{int(round(carry_avg)) if not np.isnan(carry_avg) else "-"} yd</div>
       </div>
-      <div>
-        <span class="vr-pill">Shots: {len(df)}</span>
-        <span class="vr-pill">Clubs: {df['Type'].nunique()}</span>
+      <div class="vr-kpi">
+        <div class="label">Carry Avg</div>
+        <div class="value mono">{int(round(carry_avg)) if not np.isnan(carry_avg) else "-"}</div>
+      </div>
+      <div class="vr-kpi">
+        <div class="label">Dispersion</div>
+        <div class="value small">{disp}</div>
+      </div>
+      <div class="vr-kpi">
+        <div class="label">L/R</div>
+        <div class="value mono">±{int(round(lr_p84)) if not np.isnan(lr_p84) else "-"}</div>
+      </div>
+      <div class="vr-kpi">
+        <div class="label">Depth</div>
+        <div class="value mono">±{int(round(depth_p84)) if not np.isnan(depth_p84) else "-"}</div>
+      </div>
+      <div class="vr-kpi">
+        <div class="label">Shots</div>
+        <div class="value mono">{shots}</div>
       </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown("")
-tab1, tab2 = st.tabs(["Range View", "Gapping"])
-
-# ---------------- Tab 1: Range View ----------------
-with tab1:
-    left, right = st.columns([1.35, 1.0], gap="large")
-
-    with left:
-        title = "Virtual Range"
-        fig = plot_virtual_range(df[df["Type"].isin(clubs_plot)], clubs_plot, title, show_ellipses)
-        st.pyplot(fig, clear_figure=True)
-
-    with right:
-        # KPIs for focus club (or aggregate if compare)
-        if view_mode == "Un palo":
-            dff = df[df["Type"] == clubs_plot[0]].copy()
-            label = clubs_plot[0]
-        else:
-            dff = df[df["Type"].isin(clubs_plot)].copy()
-            label = "Selected"
-
-        carry_avg = float(dff["Carry[yd]"].mean())
-        carry_p50 = float(dff["Carry[yd]"].median())
-        lr_p84 = float(np.quantile(np.abs(dff["Dir_signed"].values), 0.84)) if len(dff) else float("nan")
-        depth_p84 = float(np.quantile(np.abs(dff["Carry[yd]"].values - carry_p50), 0.84)) if len(dff) else float("nan")
-
-        st.markdown('<div class="vr-card">', unsafe_allow_html=True)
-        st.markdown(f"### {label}")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f'<div class="vr-kpi">Carry Avg<br><strong>{int(round(carry_avg))} yd</strong></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="vr-kpi">Carry Median<br><strong>{int(round(carry_p50))} yd</strong></div>', unsafe_allow_html=True)
-        with c2:
-            st.markdown(f'<div class="vr-kpi">L/R (p84)±<br><strong>{int(round(lr_p84))} yd</strong></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="vr-kpi">Depth (p84)±<br><strong>{int(round(depth_p84))} yd</strong></div>', unsafe_allow_html=True)
-
-        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
-        # Small per-club mini table
-        by_club = (df[df["Type"].isin(clubs_plot)]
-                   .groupby("Type")
-                   .agg(Shots=("Carry[yd]", "size"),
-                        CarryAvg=("Carry[yd]", "mean"),
-                        DirAvg=("Dir_signed", "mean"),
-                        DirAbsP84=("Dir_signed", lambda s: np.quantile(np.abs(s), 0.84)))
-                   .reset_index())
-        by_club["CarryAvg"] = by_club["CarryAvg"].round(0).astype(int)
-        by_club["DirAvg"] = by_club["DirAvg"].round(1)
-        by_club["DirAbsP84"] = by_club["DirAbsP84"].round(0).astype(int)
-        st.dataframe(by_club, use_container_width=True, hide_index=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# ---------------- Tab 2: Gapping ----------------
-with tab2:
-    st.markdown("### Gapping (core shots)")
-    gap = (df.groupby("Type")
-             .agg(Shots=("Carry[yd]", "size"),
-                  CarryAvg=("Carry[yd]", "mean"),
-                  CarryP25=("Carry[yd]", lambda s: np.quantile(s, 0.25)),
-                  CarryP75=("Carry[yd]", lambda s: np.quantile(s, 0.75)),
-                  DirAbsP84=("Dir_signed", lambda s: np.quantile(np.abs(s), 0.84)))
-             .reset_index())
-    gap["CarryAvg"] = gap["CarryAvg"].round(0).astype(int)
-    gap["IQR"] = (gap["CarryP75"] - gap["CarryP25"]).round(0).astype(int)
-    gap["DirAbsP84"] = gap["DirAbsP84"].round(0).astype(int)
-    gap = gap.drop(columns=["CarryP25","CarryP75"])
-    gap = gap.sort_values("CarryAvg", ascending=False)
-
-    st.dataframe(gap, use_container_width=True, hide_index=True)
-
-    # Optional simple gapping deltas
-    g2 = gap[["Type","CarryAvg"]].copy().reset_index(drop=True)
-    g2["Δ vs next"] = (g2["CarryAvg"].diff(-1).abs()).fillna(np.nan).round(0)
-    st.markdown('<div class="vr-subtle">Δ vs next: diferencia de carry promedio con el palo inmediatamente inferior (según CarryAvg).</div>', unsafe_allow_html=True)
-    st.dataframe(g2, use_container_width=True, hide_index=True)
+st.markdown("</div>", unsafe_allow_html=True)
