@@ -595,7 +595,7 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
         labels_placed.append((px, py))
         prev_y = py
 
-    ax.set_xlim(*xlim)(*xlim)
+    ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
     ax.set_xticks([]); ax.set_yticks([])
     for spine in ax.spines.values():
