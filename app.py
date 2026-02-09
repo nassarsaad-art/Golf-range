@@ -6,55 +6,74 @@ import streamlit as st
 from matplotlib.patches import Ellipse
 
 # ============================
-# Page setup
+# Page setup (mobile-first)
 # ============================
 st.set_page_config(page_title="Virtual Range", page_icon="⛳", layout="wide")
 
-# NOTE: Do NOT hide Streamlit header/toolbar on iOS. The sidebar toggle lives there.
+# Mobile-first CSS: full-width, remove extra padding, harmonious palette, readable contrasts.
+# Keep Streamlit header (iOS needs it for sidebar toggle).
 st.markdown(
     """
 <style>
-/* App background */
-.stApp { background: #E9EDF2; }
+:root{
+  --bg: #E9EDF2;
+  --card: #F7F8FA;
+  --top1: #2B3646;
+  --top2: #1F2937;
+  --text: rgba(0,0,0,0.82);
+  --muted: rgba(0,0,0,0.55);
+  --line: rgba(0,0,0,0.10);
+  --shadow: 0 18px 36px rgba(0,0,0,0.16);
+  --side1: #1F2937;
+  --side2: #111827;
+  --sideText: rgba(255,255,255,0.92);
+  --sideMuted: rgba(255,255,255,0.70);
+  --accent: #E25555;
+}
 
-/* Sidebar (dark like mockup) */
+/* App background */
+.stApp{ background: var(--bg); }
+
+/* Reduce page padding so plot can go bigger */
+.block-container{
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+  max-width: 1400px;
+}
+
+/* Sidebar */
 section[data-testid="stSidebar"]{
-  background: linear-gradient(180deg, #1F2937 0%, #111827 100%);
+  background: linear-gradient(180deg, var(--side1) 0%, var(--side2) 100%);
   border-right: 1px solid rgba(255,255,255,0.08);
 }
-section[data-testid="stSidebar"] * { color: rgba(255,255,255,0.92) !important; }
-section[data-testid="stSidebar"] label { color: rgba(255,255,255,0.80) !important; }
-section[data-testid="stSidebar"] .stMarkdown { color: rgba(255,255,255,0.88) !important; }
-section[data-testid="stSidebar"] [data-baseweb="select"] > div{
-  background: rgba(255,255,255,0.08) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
+section[data-testid="stSidebar"] * { color: var(--sideText) !important; }
+section[data-testid="stSidebar"] label { color: rgba(255,255,255,0.82) !important; }
+section[data-testid="stSidebar"] .stMarkdown { color: var(--sideText) !important; }
+section[data-testid="stSidebar"] div[data-testid="stFileUploader"]{
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  padding: 10px 10px;
 }
 section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textarea{
   background: rgba(255,255,255,0.06) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  color: rgba(255,255,255,0.92) !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stFileUploader"]{
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
-  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  border-radius: 14px !important;
 }
 
-/* Main: remove extra padding so plot is big */
-.block-container { padding-top: 0.6rem; padding-bottom: 0.8rem; max-width: 1400px; }
-
-/* Shell top bar (inside main) */
+/* Shell */
 .vr-shell{
-  background: #F7F8FA;
-  border: 1px solid rgba(0,0,0,0.10);
-  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 18px 36px rgba(0,0,0,0.16);
+  box-shadow: var(--shadow);
 }
 .vr-topbar{
-  height: 52px;
-  background: linear-gradient(180deg, #2B3646 0%, #1F2937 100%);
+  height: 56px;
+  background: linear-gradient(180deg, var(--top1) 0%, var(--top2) 100%);
   display:flex; align-items:center; justify-content:space-between;
   padding: 0 16px;
   color: rgba(255,255,255,0.92);
@@ -68,18 +87,41 @@ section[data-testid="stSidebar"] div[data-testid="stFileUploader"]{
   color: rgba(255,255,255,0.78);
   font-size: 16px;
 }
-.vr-sessionline{
+.vr-session{
   height: 38px;
   display:flex; align-items:center; justify-content:center;
-  background: #F7F8FA;
+  background: var(--card);
   border-bottom: 1px solid rgba(0,0,0,0.08);
-  color: rgba(0,0,0,0.62);
+  color: var(--muted);
   font-size: 12px;
 }
-.vr-plotpad{ padding: 6px 10px 10px 10px; }
+.vr-plotpad{
+  padding: 6px 8px 8px 8px;
+}
 
-/* Tabs: slightly bigger */
-div[data-baseweb="tab-list"] button { font-weight: 700; }
+/* Tabs styling: closer to your mockups */
+div[data-baseweb="tab-list"]{
+  gap: 10px;
+  background: transparent;
+}
+div[data-baseweb="tab-list"] button{
+  font-weight: 900;
+  color: rgba(0,0,0,0.55);
+}
+div[data-baseweb="tab-list"] button[aria-selected="true"]{
+  color: rgba(0,0,0,0.85);
+}
+/* Streamlit draws a red underline sometimes; harmonize it */
+div[data-baseweb="tab-highlight"]{ background: var(--accent) !important; }
+
+/* Make the plot take as much vertical room as possible on phones */
+@media (max-width: 768px){
+  .block-container{ padding-left: 0.35rem; padding-right: 0.35rem; }
+  .vr-plotpad{ padding: 4px 6px 6px 6px; }
+}
+
+/* Remove extra blank space under pyplot (Streamlit adds some margins) */
+div[data-testid="stVerticalBlock"]{ gap: 0.4rem; }
 </style>
 """,
     unsafe_allow_html=True
@@ -118,7 +160,6 @@ def detect_datetime_column(df: pd.DataFrame):
     return None
 
 def mahalanobis_filter(df: pd.DataFrame, keep_pct: float) -> pd.DataFrame:
-    """Keep closest keep_pct per club using Mahalanobis distance in (Dir, Carry)."""
     def filt(g):
         if len(g) < 6:
             return g
@@ -187,7 +228,6 @@ def point_inside_ellipse(pt, center, width, height, angle_deg, pad=0.0):
     return (u[0]**2)/(a*a) + (u[1]**2)/(b*b) <= 1.0
 
 def pick_label_position(center, width, height, angle_deg, text, all_points_xy, other_ellipses, other_labels, xlim, ylim):
-    # Just outside ellipse; try multiple angles; avoid overlaps
     pad_x, pad_y = 2.0, 2.0
     candidates = [0, 30, -30, 90, -90, 150, -150, 180]
     R = rotation_matrix(angle_deg)
@@ -236,17 +276,17 @@ def pick_label_position(center, width, height, angle_deg, text, all_points_xy, o
     return p, "left", "center"
 
 # ============================
-# Plot styling
+# Plot styling (portrait-friendly)
 # ============================
 def add_background(ax, xlim, ylim):
-    W, H = 900, 520
+    W, H = 900, 620
     img = np.zeros((H, W, 3), dtype=float)
 
     top = np.array([0.96, 0.97, 0.98])
     mid = np.array([0.93, 0.94, 0.96])
     grass = np.array([0.78, 0.86, 0.78])
 
-    split = int(H * 0.58)
+    split = int(H * 0.56)
     for y in range(H):
         if y < split:
             tt = y / max(1, split - 1)
@@ -258,15 +298,18 @@ def add_background(ax, xlim, ylim):
 
     ax.imshow(img, extent=[xlim[0], xlim[1], ylim[0], ylim[1]], aspect="auto", zorder=0)
 
+    # converging turf lines
     for i in range(-8, 9):
-        ax.plot([i*5.0, i*1.8], [ylim[0], ylim[0] + (ylim[1]-ylim[0])*0.48],
+        ax.plot([i*5.0, i*1.8], [ylim[0], ylim[0] + (ylim[1]-ylim[0])*0.52],
                 color=(0.60, 0.72, 0.62, 0.20), lw=1.0, zorder=1)
 
-    for y in np.linspace(ylim[0] + 12, ylim[0] + (ylim[1]-ylim[0])*0.50, 7):
+    # subtle horizontals
+    for y in np.linspace(ylim[0] + 12, ylim[0] + (ylim[1]-ylim[0])*0.55, 7):
         ax.plot([xlim[0], xlim[1]], [y, y], color=(0.20,0.22,0.25,0.08), lw=1.0, zorder=1)
 
-def plot_virtual_range(df, clubs, session_label: str):
-    fig = plt.figure(figsize=(12.0, 6.2))
+def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
+    # Portrait-ish figure: bigger height than width so on iPhone it fills vertical space nicely
+    fig = plt.figure(figsize=(7.2, 10.0) if portrait else (12.0, 6.2))
     ax = plt.gca()
 
     xlim = (-40, 40)
@@ -354,7 +397,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### Session")
-    # Date slider appears after data load (we render placeholder)
     session_placeholder = st.empty()
 
 # ============================
@@ -368,7 +410,7 @@ else:
     if pasted and len(pasted.strip()) >= 50:
         df = pd.read_csv(io.StringIO(pasted.strip().lstrip("\ufeff")))
 
-# Main shell always present; main content is ONLY tabs (Range + Metrics)
+# Main shell (only viewer + tabs, no extra messages)
 st.markdown('<div class="vr-shell">', unsafe_allow_html=True)
 st.markdown(
     """
@@ -383,13 +425,9 @@ st.markdown(
 tabs = st.tabs(["Virtual Range", "Métricas"])
 
 if df is None:
-    # Only show hint (still main is basically the viewer shell)
-    st.markdown('<div class="vr-sessionline">Sube o pega un CSV desde el sidebar</div>', unsafe_allow_html=True)
+    # Minimal empty state: keep UI clean; no big callouts.
+    st.markdown('<div class="vr-session">Sube o pega un CSV desde el sidebar</div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
-    with tabs[0]:
-        st.info("Usa el sidebar para cargar el CSV.")
-    with tabs[1]:
-        st.info("Carga datos para ver métricas.")
     st.stop()
 
 required = {"Carry[yd]", "Launch Direction", "Type"}
@@ -449,19 +487,24 @@ with st.sidebar:
 # Session label
 n_dates_show = len(dates_used) if dates_used else 1
 session_label = f"Session: Last {n_dates_show} dates  ·  Core: {int(round(keep_pct*100))}%  ·  Cali"
-st.markdown(f'<div class="vr-sessionline">{session_label}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="vr-session">{session_label}</div>', unsafe_allow_html=True)
+
+# Portrait on phones
+is_mobile = st.session_state.get("_is_mobile", None)
+# Heuristic: Streamlit doesn't give UA; so default to portrait (works well on phones and acceptable on desktop).
+portrait = True
 
 # ============================
-# Tab 1: Virtual Range (FULL screen area)
+# Tab 1: Virtual Range (maximize space)
 # ============================
 with tabs[0]:
     st.markdown('<div class="vr-plotpad">', unsafe_allow_html=True)
-    fig = plot_virtual_range(df_core[df_core["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label)
+    fig = plot_virtual_range(df_core[df_core["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label, portrait=portrait)
     st.pyplot(fig, clear_figure=True, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================
-# Tab 2: Metrics (table per club, core shots only)
+# Tab 2: Metrics (table)
 # ============================
 with tabs[1]:
     rows = []
@@ -469,7 +512,6 @@ with tabs[1]:
         sub = df_core[df_core["Type"] == c].copy()
         if sub.empty:
             continue
-
         shots = int(len(sub))
         carry_avg = float(sub["Carry[yd]"].mean())
         carry_med = float(np.median(sub["Carry[yd]"].values))
@@ -489,7 +531,6 @@ with tabs[1]:
             "Depth ± (yd) (p84)": int(round(depth_p84)) if not np.isnan(depth_p84) else None,
             "Dispersion": disp,
         })
-
     t = pd.DataFrame(rows).sort_values(by="Carry Avg (yd)", ascending=False)
     st.dataframe(t, use_container_width=True, hide_index=True)
 
