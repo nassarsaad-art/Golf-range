@@ -689,27 +689,52 @@ if not clubs_all:
 with st.sidebar:
     st.markdown("### Palos")
 
-    clubs_all_sorted = clubs_all[:]  # already sorted upstream
+    # Initialize checkbox states for each club
+    for c in clubs_all:
+        k = f"club__{c}"
+        if k not in st.session_state:
+            st.session_state[k] = False
 
-    select_all = st.checkbox("Seleccionar todos", value=True)
-    select_none = st.checkbox("Seleccionar ninguno", value=False)
+    # Track previous state to detect toggles
+    if "_sel_all_prev" not in st.session_state:
+        st.session_state["_sel_all_prev"] = False
+    if "_sel_none_prev" not in st.session_state:
+        st.session_state["_sel_none_prev"] = False
 
-    if select_all:
-        selected = clubs_all_sorted
-    elif select_none:
-        selected = []
-    else:
-        selected = [
-            c for c in clubs_all_sorted
-            if st.checkbox(c, value=(c == clubs_all_sorted[0]))
-        ]
+    sel_all = st.checkbox("Seleccionar todos", key="_sel_all")
+    sel_none = st.checkbox("Seleccionar ninguno", key="_sel_none")
 
-    if not selected:
-        selected = clubs_all_sorted[:1]
+    # If user toggles Select All ON -> set all clubs ON and turn off Select None
+    if sel_all and not st.session_state["_sel_all_prev"]:
+        for c in clubs_all:
+            st.session_state[f"club__{c}"] = True
+        st.session_state["_sel_none"] = False
 
-    clubs_plot = selected
+    # If user toggles Select None ON -> set all clubs OFF and turn off Select All
+    if sel_none and not st.session_state["_sel_none_prev"]:
+        for c in clubs_all:
+            st.session_state[f"club__{c}"] = False
+        st.session_state["_sel_all"] = False
+
+    st.session_state["_sel_all_prev"] = bool(st.session_state.get("_sel_all", False))
+    st.session_state["_sel_none_prev"] = bool(st.session_state.get("_sel_none", False))
+
+    st.markdown("")
+
+    # One checkbox per club (always shown)
+    for c in clubs_all:
+        st.checkbox(c, key=f"club__{c}")
+
+    clubs_plot = [c for c in clubs_all if st.session_state.get(f"club__{c}", False)]
+
+    # Safety: never allow empty selection (keep app usable)
+    if not clubs_plot:
+        first = clubs_all[0]
+        st.session_state[f"club__{first}"] = True
+        clubs_plot = [first]
 
 # Session label
+
 
 n_dates_show = len(dates_used) if dates_used else 1
 session_label = f"Session: Last {n_dates_show} dates  ·  Core: {int(round(keep_pct*100))}%  ·  Cali"
