@@ -534,37 +534,16 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
                     center=center, w=w, h=h, ang=ang
                 ))
 
-    # Pass 2: place labels OUTSIDE and in ASCENDING order (by carry),
-    # keep each label VERY CLOSE to its own ellipse. Allow left/right placement as needed.
+    # Pass 2: place labels OUTSIDE and in ASCENDING order (bottom-to-top),
+    # but keep each label VERY CLOSE to its own ellipse.
     labels_placed = []
     label_intents.sort(key=lambda d: d["avg"])  # ascending carry
 
-    # Minimum vertical separation between labels (small, so they can stay near their ovals)
-    y_step = 1.8
+    # Small step to avoid label collisions (in yards on Y axis)
+    y_step = 2.4
 
-    def label_collides(x, y):
-        for (px, py) in labels_placed:
-            if (x - px)**2 + (y - py)**2 < (3.4**2):
-                return True
-        return False
-
-    def point_ok(x, y, center, w, h, ang):
-        # must be outside own ellipse
-        if point_inside_ellipse((x, y), center, w, h, ang, pad=0.8):
-            return False
-        # must not fall inside other ellipses
-        for (c2, w2, h2, a2) in ellipses_drawn:
-            if (c2 is center) and (w2 == w) and (h2 == h) and (a2 == ang):
-                continue
-            if point_inside_ellipse((x, y), c2, w2, h2, a2, pad=1.1):
-                return False
-        if label_collides(x, y):
-            return False
-        # bounds
-        if not (xlim[0] + 1 <= x <= xlim[1] - 1 and ylim[0] + 1 <= y <= ylim[1] - 1):
-            return False
-        return True
-
+    # Greedy: for each club, start at right side of its own ellipse (closest point),
+    # then nudge minimally to avoid overlaps, while keeping order ascending in Y.
     prev_y = -1e9
     for d in label_intents:
         center, w, h, ang = d["center"], d["w"], d["h"], d["ang"]
@@ -572,90 +551,58 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
         cx, cy = float(center[0]), float(center[1])
         rx, ry = float(w/2.0), float(h/2.0)
 
-        # Keep very close to oval
-        margin = 0.75
-        max_shift = max(2.5, min(6.5, 0.55 * ry))  # how far we allow Y to move from cy
+        # Base position: just outside the ellipse on the RIGHT
+        margin = 2.0
+        lx = cx + rx + margin
+        ly = cy
 
-        # Candidate angles around ellipse (include left and right)
-        angles = [0, 30, -30, 90, -90, 150, -150, 180]
-        R = rotation_matrix(ang)
+        # Keep label near ellipse vertically (cap how far we can drift from cy)
+        max_shift = max(4.0, min(12.0, 0.85*ry))
 
-        best = None
-        best_score = 1e18
+        # Enforce ascending visual ordering (carry ascending => y ascending)
+        if ly < prev_y + y_step:
+            ly = prev_y + y_step
 
-        # Desired minimum y to preserve hierarchy
-        y_min = prev_y + y_step
+        # If that pushes label too far from its ellipse, prefer moving slightly in X instead
+        # and keep Y near cy as much as possible.
+        if abs(ly - cy) > max_shift:
+            ly = cy + np.sign(ly - cy) * max_shift
 
-        for deg in angles:
-            t = math.radians(deg)
-            local = np.array([(rx + margin) * math.cos(t), (ry + margin) * math.sin(t)])
-            p = (np.array(center) + R @ local).astype(float)
-            x, y = float(p[0]), float(p[1])
+        # Collision avoidance: adjust Y first within max_shift; if still colliding, extend X a bit.
+        def collides(x, y):
+            for (px, py) in labels_placed:
+                if (x - px)**2 + (y - py)**2 < (4.0**2):
+                    return True
+            return False
 
-            # enforce hierarchy gently: prefer y >= y_min, but don't force huge drift
-            if y < y_min:
-                y = y_min
+        # Try small nudges up (keeping order), within the allowed band
+        tries = 0
+        while collides(lx, ly) and tries < 18:
+            candidate = ly + y_step
+            if abs(candidate - cy) <= max_shift:
+                ly = candidate
+            else:
+                # Can't move more in Y without drifting; move slightly out in X (still close)
+                lx += 2.2
+            tries += 1
 
-            # clamp near its ellipse vertically
-            if abs(y - cy) > max_shift:
-                continue
-
-            if not point_ok(x, y, center, w, h, ang):
-                continue
-
-            # scoring: keep close to ellipse center vertically and minimize distance from boundary point
-            score = abs(y - cy) * 2.2 + abs(x - cx) * 0.25
-            if score < best_score:
-                best_score = score
-                best = (x, y, deg)
-
-        # If no candidate found within max_shift, relax: allow a bit more shift but still close
-        if best is None:
-            relax = max_shift + 3.0
-            for deg in angles:
-                t = math.radians(deg)
-                local = np.array([(rx + margin) * math.cos(t), (ry + margin) * math.sin(t)])
-                p = (np.array(center) + R @ local).astype(float)
-                x, y = float(p[0]), float(p[1])
-                if y < y_min:
-                    y = y_min
-                if abs(y - cy) > relax:
-                    continue
-                if not point_ok(x, y, center, w, h, ang):
-                    continue
-                score = abs(y - cy) * 1.6 + abs(x - cx) * 0.20
-                if score < best_score:
-                    best_score = score
-                    best = (x, y, deg)
-
-        # Ultimate fallback: right side, minimal offsets
-        if best is None:
-            x = cx + rx + margin
-            y = min(max(y_min, cy - max_shift), cy + max_shift)
-            # push out until it's valid
-            for _ in range(12):
-                if point_ok(x, y, center, w, h, ang):
-                    break
-                x += 0.9
-                y += 0.8
-            best = (x, y, 0)
-
-        lx, ly, deg = best
-
-        # Align text so chip grows outward from ellipse
-        ha = "left" if deg in (0, 30, -30, 90, -90) else ("right" if deg in (180, 150, -150) else "center")
+        # Ensure the ENTIRE chip stays outside the ellipse line: keep a bit more margin if needed
+        # (approx by pushing anchor X slightly if anchor still inside due to rotation)
+        # We'll just ensure the anchor point isn't inside (chip extends to the right with ha='left').
+        if point_inside_ellipse((lx, ly), center, w, h, ang, pad=1.0):
+            lx = cx + rx + margin + 3.0
 
         face = blend_with_white(col, 0.82)
         text_col = darken(col, 0.72)
         ax.text(lx, ly, txt,
-                fontsize=10, ha=ha, va="center", color=text_col,
+                fontsize=10, ha="left", va="center", color=text_col,
                 bbox=dict(boxstyle="round,pad=0.38", facecolor=face, edgecolor="none", alpha=0.90),
                 zorder=7)
 
         labels_placed.append((lx, ly))
         prev_y = ly
 
-    ax.set_xlim(*xlim)ax.set_xlim(*xlim)
+    ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
     ax.set_xticks([]); ax.set_yticks([])
     for spine in ax.spines.values():
