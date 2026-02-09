@@ -10,13 +10,11 @@ from matplotlib.patches import Ellipse
 # ============================
 st.set_page_config(page_title="Virtual Range", page_icon="⛳", layout="wide")
 
-# IMPORTANT: Do NOT hide Streamlit header on mobile; it contains the sidebar toggle.
-# We style, but keep it functional.
-
+# NOTE: Do NOT hide Streamlit header/toolbar on iOS. The sidebar toggle lives there.
 st.markdown(
     """
 <style>
-/* Page background */
+/* App background */
 .stApp { background: #E9EDF2; }
 
 /* Sidebar (dark like mockup) */
@@ -36,8 +34,17 @@ section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textare
   border: 1px solid rgba(255,255,255,0.12) !important;
   color: rgba(255,255,255,0.92) !important;
 }
+section[data-testid="stSidebar"] div[data-testid="stFileUploader"]{
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
 
-/* Main shell (card) */
+/* Main: remove extra padding so plot is big */
+.block-container { padding-top: 0.6rem; padding-bottom: 0.8rem; max-width: 1400px; }
+
+/* Shell top bar (inside main) */
 .vr-shell{
   background: #F7F8FA;
   border: 1px solid rgba(0,0,0,0.10);
@@ -69,41 +76,10 @@ section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textare
   color: rgba(0,0,0,0.62);
   font-size: 12px;
 }
-.vr-plotpad{ padding: 8px 14px 0 14px; }
+.vr-plotpad{ padding: 6px 10px 10px 10px; }
 
-/* KPI bar */
-.vr-kpibar{
-  background: #F1F3F6;
-  border-top: 1px solid rgba(0,0,0,0.10);
-  display:flex;
-  flex-wrap: wrap;
-}
-.vr-kpi{
-  flex: 1;
-  min-width: 160px;
-  padding: 12px 14px;
-  border-right: 1px solid rgba(0,0,0,0.08);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
-}
-.vr-kpi:last-child{ border-right:none; }
-.vr-kpi .label{ font-size: 11px; color: rgba(0,0,0,0.58); }
-.vr-kpi .value{ font-size: 18px; font-weight: 900; color: rgba(0,0,0,0.86); letter-spacing: -0.01em; }
-.vr-kpi .value.small{ font-size: 15px; font-weight: 900; }
-.vr-kpi .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum"; }
-
-/* Make uploader / inputs feel native */
-div[data-testid="stFileUploader"]{
-  background: rgba(255,255,255,0.85);
-  border: 1px solid rgba(0,0,0,0.10);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-textarea{
-  border-radius: 12px !important;
-}
-
-/* Container size */
-.block-container{ padding-top: 0.8rem; padding-bottom: 1.0rem; max-width: 1200px; }
+/* Tabs: slightly bigger */
+div[data-baseweb="tab-list"] button { font-weight: 700; }
 </style>
 """,
     unsafe_allow_html=True
@@ -142,6 +118,7 @@ def detect_datetime_column(df: pd.DataFrame):
     return None
 
 def mahalanobis_filter(df: pd.DataFrame, keep_pct: float) -> pd.DataFrame:
+    """Keep closest keep_pct per club using Mahalanobis distance in (Dir, Carry)."""
     def filt(g):
         if len(g) < 6:
             return g
@@ -210,6 +187,7 @@ def point_inside_ellipse(pt, center, width, height, angle_deg, pad=0.0):
     return (u[0]**2)/(a*a) + (u[1]**2)/(b*b) <= 1.0
 
 def pick_label_position(center, width, height, angle_deg, text, all_points_xy, other_ellipses, other_labels, xlim, ylim):
+    # Just outside ellipse; try multiple angles; avoid overlaps
     pad_x, pad_y = 2.0, 2.0
     candidates = [0, 30, -30, 90, -90, 150, -150, 180]
     R = rotation_matrix(angle_deg)
@@ -288,7 +266,7 @@ def add_background(ax, xlim, ylim):
         ax.plot([xlim[0], xlim[1]], [y, y], color=(0.20,0.22,0.25,0.08), lw=1.0, zorder=1)
 
 def plot_virtual_range(df, clubs, session_label: str):
-    fig = plt.figure(figsize=(10.5, 5.7))
+    fig = plt.figure(figsize=(12.0, 6.2))
     ax = plt.gca()
 
     xlim = (-40, 40)
@@ -351,47 +329,67 @@ def plot_virtual_range(df, clubs, session_label: str):
     return fig
 
 # ============================
-# Sidebar controls (optional)
+# Sidebar controls (ALL controls live here)
 # ============================
 with st.sidebar:
-    st.markdown("### 🔎 Clubs")
+    st.markdown("## 🛡️ Virtual Range")
+
+    st.markdown("### Datos")
+    input_mode = st.radio("Entrada", ["Subir archivo", "Pegar CSV"], index=0)
+
+    uploaded = None
+    pasted = ""
+    if input_mode == "Subir archivo":
+        uploaded = st.file_uploader("CSV", type="csv", accept_multiple_files=False)
+    else:
+        pasted = st.text_area("Pega el CSV", height=180, placeholder="Copia desde Golfboy y pega aquí…")
+
+    st.markdown("---")
+    st.markdown("### Clubs")
     compare = st.toggle("Compare", value=False)
 
     st.markdown("### CORE SHOTS")
     keep_pct = st.slider("", 0.50, 0.95, 0.70, 0.05)
-    st.markdown("<div style='font-size:11px; color:rgba(255,255,255,0.70); margin-top:6px;'>Mostrando golpes más consistentes</div>", unsafe_allow_html=True)
+    st.caption("Golpes más agrupados (Mahalanobis 2D por palo).")
+
+    st.markdown("---")
+    st.markdown("### Session")
+    # Date slider appears after data load (we render placeholder)
+    session_placeholder = st.empty()
 
 # ============================
-# MAIN: Always show working input
+# Load data
 # ============================
+df = None
+if input_mode == "Subir archivo":
+    if uploaded is not None:
+        df = pd.read_csv(uploaded)
+else:
+    if pasted and len(pasted.strip()) >= 50:
+        df = pd.read_csv(io.StringIO(pasted.strip().lstrip("\ufeff")))
+
+# Main shell always present; main content is ONLY tabs (Range + Metrics)
 st.markdown('<div class="vr-shell">', unsafe_allow_html=True)
 st.markdown(
     """
     <div class="vr-topbar">
       <div class="left">🛡️ Virtual Range</div>
-      <div class="right">＋ &nbsp; ◯ &nbsp; 👤</div>
+      <div class="right">＋ &nbsp; 🔍 &nbsp; 👤</div>
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# Inputs (always visible; not inside HTML overlays)
-tabs = st.tabs(["Subir CSV", "Pegar CSV"])
-
-df = None
-with tabs[0]:
-    f = st.file_uploader("Selecciona el CSV", type="csv", accept_multiple_files=False)
-    if f is not None:
-        df = pd.read_csv(f)
-
-with tabs[1]:
-    txt = st.text_area("Pega el CSV completo", height=220, placeholder="Copia desde Golfboy y pega aquí…")
-    if df is None and txt and len(txt.strip()) >= 50:
-        df = pd.read_csv(io.StringIO(txt.strip().lstrip("\ufeff")))
+tabs = st.tabs(["Virtual Range", "Métricas"])
 
 if df is None:
-    st.markdown('<div class="vr-sessionline">Sube un CSV para ver el range</div>', unsafe_allow_html=True)
+    # Only show hint (still main is basically the viewer shell)
+    st.markdown('<div class="vr-sessionline">Sube o pega un CSV desde el sidebar</div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+    with tabs[0]:
+        st.info("Usa el sidebar para cargar el CSV.")
+    with tabs[1]:
+        st.info("Carga datos para ver métricas.")
     st.stop()
 
 required = {"Carry[yd]", "Launch Direction", "Type"}
@@ -400,22 +398,26 @@ if not required.issubset(df.columns):
     st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# Date slider (main, always works)
+# Date filter (sidebar)
 dates_used = []
 dt_col = detect_datetime_column(df)
-dates = []
 if dt_col:
     df["_dt"] = pd.to_datetime(df[dt_col], errors="coerce")
     df["_date"] = df["_dt"].dt.date
     dates = sorted(df["_date"].dropna().unique())
-
-if len(dates) > 1:
-    n_dates = st.slider("Últimas fechas", 1, len(dates), min(len(dates), 3), 1)
-    dates_used = list(dates[-n_dates:])
-    df = df[df["_date"].isin(dates_used)].copy()
-elif len(dates) == 1:
-    dates_used = [dates[0]]
-    df = df[df["_date"] == dates[0]].copy()
+    if len(dates) > 1:
+        with session_placeholder.container():
+            n_dates = st.slider("Últimas fechas", 1, len(dates), min(len(dates), 3), 1, key="n_dates")
+        dates_used = list(dates[-n_dates:])
+        df = df[df["_date"].isin(dates_used)].copy()
+    elif len(dates) == 1:
+        with session_placeholder.container():
+            st.write(f"Fecha: {dates[0]}")
+        dates_used = [dates[0]]
+        df = df[df["_date"] == dates[0]].copy()
+else:
+    with session_placeholder.container():
+        st.write("Sin fecha en el CSV")
 
 # Clean + core filter
 df["Dir_signed"] = df["Launch Direction"].apply(parse_direction)
@@ -425,78 +427,70 @@ if df.empty:
     st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-df = mahalanobis_filter(df, keep_pct)
+df_core = mahalanobis_filter(df, keep_pct)
 
-clubs_all = sorted(df["Type"].unique())
+clubs_all = sorted(df_core["Type"].unique())
 if not clubs_all:
-    st.error("No hay datos luego del filtro.")
+    st.error("No hay datos luego del filtro CORE.")
     st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# Club selection (main)
-if compare:
-    clubs_plot = st.multiselect("Palos (comparar)", clubs_all, default=clubs_all[:min(len(clubs_all), 4)])
-    if not clubs_plot:
-        clubs_plot = clubs_all[:1]
-    focus_club = clubs_plot[0]
-else:
-    focus_club = st.selectbox("Palo", clubs_all, index=0)
-    clubs_plot = [focus_club]
+# Club selection (sidebar only)
+with st.sidebar:
+    if compare:
+        clubs_plot = st.multiselect("Palos (comparar)", clubs_all, default=clubs_all[:min(len(clubs_all), 4)])
+        if not clubs_plot:
+            clubs_plot = clubs_all[:1]
+        focus_club = clubs_plot[0]
+    else:
+        focus_club = st.selectbox("Palo", clubs_all, index=0)
+        clubs_plot = [focus_club]
 
-# KPIs
-dff = df[df["Type"] == focus_club].copy()
-shots = int(len(dff)) if len(dff) else 0
-carry_avg = float(dff["Carry[yd]"].mean()) if shots else float("nan")
-carry_med = float(np.median(dff["Carry[yd]"].values)) if shots else float("nan")
-lr_p84 = float(np.quantile(np.abs(dff["Dir_signed"].values), 0.84)) if shots else float("nan")
-depth_p84 = float(np.quantile(np.abs(dff["Carry[yd]"].values - carry_med), 0.84)) if shots else float("nan")
-
-disp = "Tight"
-if not np.isnan(lr_p84) and not np.isnan(depth_p84):
-    score = lr_p84 + 0.6 * depth_p84
-    if score > 14: disp = "Wide"
-    elif score > 10: disp = "OK"
-
+# Session label
 n_dates_show = len(dates_used) if dates_used else 1
 session_label = f"Session: Last {n_dates_show} dates  ·  Core: {int(round(keep_pct*100))}%  ·  Cali"
 st.markdown(f'<div class="vr-sessionline">{session_label}</div>', unsafe_allow_html=True)
 
-# Plot
-st.markdown('<div class="vr-plotpad">', unsafe_allow_html=True)
-fig = plot_virtual_range(df[df["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label)
-st.pyplot(fig, clear_figure=True, use_container_width=True)
-st.markdown("</div>", unsafe_allow_html=True)
+# ============================
+# Tab 1: Virtual Range (FULL screen area)
+# ============================
+with tabs[0]:
+    st.markdown('<div class="vr-plotpad">', unsafe_allow_html=True)
+    fig = plot_virtual_range(df_core[df_core["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label)
+    st.pyplot(fig, clear_figure=True, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# KPI bar
-st.markdown(
-    f"""
-    <div class="vr-kpibar">
-      <div class="vr-kpi">
-        <div class="label">{focus_club}</div>
-        <div class="value mono">{int(round(carry_avg)) if not np.isnan(carry_avg) else "-"} yd</div>
-      </div>
-      <div class="vr-kpi">
-        <div class="label">Carry Avg</div>
-        <div class="value mono">{int(round(carry_avg)) if not np.isnan(carry_avg) else "-"}</div>
-      </div>
-      <div class="vr-kpi">
-        <div class="label">Dispersion</div>
-        <div class="value small">{disp}</div>
-      </div>
-      <div class="vr-kpi">
-        <div class="label">L/R</div>
-        <div class="value mono">±{int(round(lr_p84)) if not np.isnan(lr_p84) else "-"}</div>
-      </div>
-      <div class="vr-kpi">
-        <div class="label">Depth</div>
-        <div class="value mono">±{int(round(depth_p84)) if not np.isnan(depth_p84) else "-"}</div>
-      </div>
-      <div class="vr-kpi">
-        <div class="label">Shots</div>
-        <div class="value mono">{shots}</div>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# ============================
+# Tab 2: Metrics (table per club, core shots only)
+# ============================
+with tabs[1]:
+    rows = []
+    for c in clubs_all:
+        sub = df_core[df_core["Type"] == c].copy()
+        if sub.empty:
+            continue
+
+        shots = int(len(sub))
+        carry_avg = float(sub["Carry[yd]"].mean())
+        carry_med = float(np.median(sub["Carry[yd]"].values))
+        lr_p84 = float(np.quantile(np.abs(sub["Dir_signed"].values), 0.84)) if shots else np.nan
+        depth_p84 = float(np.quantile(np.abs(sub["Carry[yd]"].values - carry_med), 0.84)) if shots else np.nan
+
+        disp = "Tight"
+        score = lr_p84 + 0.6 * depth_p84
+        if score > 14: disp = "Wide"
+        elif score > 10: disp = "OK"
+
+        rows.append({
+            "Palo": c,
+            "Carry Avg (yd)": int(round(carry_avg)),
+            "Shots (core)": shots,
+            "L/R ± (yd) (p84)": int(round(lr_p84)) if not np.isnan(lr_p84) else None,
+            "Depth ± (yd) (p84)": int(round(depth_p84)) if not np.isnan(depth_p84) else None,
+            "Dispersion": disp,
+        })
+
+    t = pd.DataFrame(rows).sort_values(by="Carry Avg (yd)", ascending=False)
+    st.dataframe(t, use_container_width=True, hide_index=True)
+
 st.markdown("</div>", unsafe_allow_html=True)
