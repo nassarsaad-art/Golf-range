@@ -383,7 +383,7 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
     ax.set_xlim(0, max_d*1.08)
     ax.set_ylim(0, max_h*1.25)
     # Match the subtle gray used by arc labels in the Virtual Range
-    ax.grid(True, color=grid_gray, linewidth=1.0, zorder=1)
+    ax.grid(True, color=(0.20,0.22,0.25,0.10), linewidth=1.0, zorder=1)
     ax.tick_params(axis="both", colors=arc_gray)
     ax.xaxis.label.set_color(arc_gray)
     ax.yaxis.label.set_color(arc_gray)
