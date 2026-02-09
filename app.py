@@ -552,45 +552,55 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
         rx, ry = float(w/2.0), float(h/2.0)
 
         # Base position: just outside the ellipse on the RIGHT
-        margin = 2.0
+        # Keep this REALLY close to the oval line (but not touching)
+        margin = 0.9
         lx = cx + rx + margin
         ly = cy
 
-        # Keep label near ellipse vertically (cap how far we can drift from cy)
-        max_shift = max(4.0, min(12.0, 0.85*ry))
+        # Keep label near ellipse vertically (cap drift from cy)
+        max_shift = max(3.0, min(8.0, 0.65*ry))
 
         # Enforce ascending visual ordering (carry ascending => y ascending)
         if ly < prev_y + y_step:
             ly = prev_y + y_step
 
-        # If that pushes label too far from its ellipse, prefer moving slightly in X instead
-        # and keep Y near cy as much as possible.
+        # If ordering pushes too far from its ellipse, clamp (we will prefer tiny x nudges later)
         if abs(ly - cy) > max_shift:
             ly = cy + np.sign(ly - cy) * max_shift
 
-        # Collision avoidance: adjust Y first within max_shift; if still colliding, extend X a bit.
-        def collides(x, y):
+        def collides_label(x, y):
             for (px, py) in labels_placed:
-                if (x - px)**2 + (y - py)**2 < (4.0**2):
+                if (x - px)**2 + (y - py)**2 < (3.6**2):
                     return True
             return False
 
-        # Try small nudges up (keeping order), within the allowed band
+        def collides_other_ellipses(x, y):
+            # Anchor point must not be inside other ellipses (with padding)
+            for (c2, w2, h2, a2) in ellipses_drawn:
+                if c2 is center and w2 == w and h2 == h and a2 == ang:
+                    continue
+                if point_inside_ellipse((x, y), c2, w2, h2, a2, pad=1.0):
+                    return True
+            return False
+
+        # Collision avoidance: prioritize small Y nudges (still close), then tiny X nudges.
         tries = 0
-        while collides(lx, ly) and tries < 18:
-            candidate = ly + y_step
-            if abs(candidate - cy) <= max_shift:
-                ly = candidate
+        while (collides_label(lx, ly) or collides_other_ellipses(lx, ly)) and tries < 24:
+            # Try nudging up by y_step while staying close
+            cand_y = ly + y_step
+            if abs(cand_y - cy) <= max_shift and cand_y <= ylim[1] - 1:
+                ly = cand_y
             else:
-                # Can't move more in Y without drifting; move slightly out in X (still close)
-                lx += 2.2
+                # Tiny outward nudge (keep close)
+                lx = lx + 0.8
             tries += 1
 
-        # Ensure the ENTIRE chip stays outside the ellipse line: keep a bit more margin if needed
-        # (approx by pushing anchor X slightly if anchor still inside due to rotation)
-        # We'll just ensure the anchor point isn't inside (chip extends to the right with ha='left').
-        if point_inside_ellipse((lx, ly), center, w, h, ang, pad=1.0):
-            lx = cx + rx + margin + 3.0
+        # Ensure anchor point is outside its own ellipse boundary
+        if point_inside_ellipse((lx, ly), center, w, h, ang, pad=0.6):
+            lx = cx + rx + margin + 1.4
+
+        # (Optional) keep from drifting too far right
+        lx = min(lx, cx + rx + margin + 6.0)
 
         face = blend_with_white(col, 0.82)
         text_col = darken(col, 0.72)
