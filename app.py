@@ -786,9 +786,11 @@ with tabs[1]:
             )
             st.pyplot(fig2, clear_figure=True, use_container_width=True)
 
-    # ============================
-    # Tab 2: Metrics (table)
-    # ============================with tabs[2]:
+
+# ============================
+# Tab 3: Métricas
+# ============================
+with tabs[2]:
     rows = []
     for c in clubs_all:
         sub = df_core[df_core["Type"] == c].copy()
