@@ -687,16 +687,30 @@ if not clubs_all:
 
 # Club selection (sidebar only)
 with st.sidebar:
-    if compare:
-        clubs_plot = st.multiselect("Palos (comparar)", clubs_all, default=clubs_all[:min(len(clubs_all), 4)])
-        if not clubs_plot:
-            clubs_plot = clubs_all[:1]
-        focus_club = clubs_plot[0]
+    st.markdown("### Palos")
+
+    clubs_all_sorted = clubs_all[:]  # already sorted upstream
+
+    select_all = st.checkbox("Seleccionar todos", value=True)
+    select_none = st.checkbox("Seleccionar ninguno", value=False)
+
+    if select_all:
+        selected = clubs_all_sorted
+    elif select_none:
+        selected = []
     else:
-        focus_club = st.selectbox("Palo", clubs_all, index=0)
-        clubs_plot = [focus_club]
+        selected = [
+            c for c in clubs_all_sorted
+            if st.checkbox(c, value=(c == clubs_all_sorted[0]))
+        ]
+
+    if not selected:
+        selected = clubs_all_sorted[:1]
+
+    clubs_plot = selected
 
 # Session label
+
 n_dates_show = len(dates_used) if dates_used else 1
 session_label = f"Session: Last {n_dates_show} dates  ·  Core: {int(round(keep_pct*100))}%  ·  Cali"
 st.markdown(f'<div class="vr-session">{session_label}</div>', unsafe_allow_html=True)
