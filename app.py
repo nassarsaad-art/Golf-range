@@ -528,7 +528,7 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
                 ellipses_drawn.append((center, w, h, ang))
 
                 avg_carry = float(sub["Carry[yd]"].mean())
-                txt = f"{int(round(avg_carry))} yd"
+                txt = f"{c}  {int(round(avg_carry))} yd"
                 label_intents.append(dict(
                     club=c, avg=avg_carry, txt=txt, color=col,
                     center=center, w=w, h=h, ang=ang
@@ -759,7 +759,7 @@ with tabs[0]:
     st.markdown('<div class="vr-plotpad">', unsafe_allow_html=True)
     fig = plot_virtual_range(df_core[df_core["Type"].isin(clubs_plot)], clubs_plot, session_label=session_label, portrait=portrait)
     st.pyplot(fig, clear_figure=True, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================
 # Tab 2: Trayectoria (Carry vs Altura)
