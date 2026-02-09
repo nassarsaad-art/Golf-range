@@ -726,12 +726,7 @@ with st.sidebar:
         st.checkbox(c, key=f"club__{c}")
 
     clubs_plot = [c for c in clubs_all if st.session_state.get(f"club__{c}", False)]
-
-    # Safety: never allow empty selection (keep app usable)
-    if not clubs_plot:
-        first = clubs_all[0]
-        st.session_state[f"club__{first}"] = True
-        clubs_plot = [first]
+    # Permitir selección vacía: si no hay palos marcados, el Virtual Range se muestra vacío.
 
 # Session label
 
@@ -758,27 +753,30 @@ with tabs[0]:
 # Tab 2: Trayectoria (Carry vs Altura)
 # ============================
 with tabs[1]:
-    height_col = detect_height_column(df_core)
-    if height_col is None:
-        st.warning("Este CSV no trae una columna de altura/apex (Height/Apex).")
+    if not clubs_plot:
+        st.markdown('<div class="vr-session">Sin palos seleccionados</div>', unsafe_allow_html=True)
     else:
-        # Consistent styles
-        color_map, marker_map = build_style_maps(clubs_plot)
-        fig2 = plot_flight_profiles(
-            df_core[df_core["Type"].isin(clubs_plot)],
-            clubs_plot,
-            color_map,
-            marker_map,
-            height_col=height_col,
-            session_label=session_label,
-            portrait=portrait
-        )
-        st.pyplot(fig2, clear_figure=True, use_container_width=True)
 
-# ============================
-# Tab 2: Metrics (table)
-# ============================
-with tabs[2]:
+        height_col = detect_height_column(df_core)
+        if height_col is None:
+            st.warning("Este CSV no trae una columna de altura/apex (Height/Apex).")
+        else:
+            # Consistent styles
+            color_map, marker_map = build_style_maps(clubs_plot)
+            fig2 = plot_flight_profiles(
+                df_core[df_core["Type"].isin(clubs_plot)],
+                clubs_plot,
+                color_map,
+                marker_map,
+                height_col=height_col,
+                session_label=session_label,
+                portrait=portrait
+            )
+            st.pyplot(fig2, clear_figure=True, use_container_width=True)
+
+    # ============================
+    # Tab 2: Metrics (table)
+    # ============================with tabs[2]:
     rows = []
     for c in clubs_all:
         sub = df_core[df_core["Type"] == c].copy()
