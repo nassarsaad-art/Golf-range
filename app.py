@@ -689,46 +689,58 @@ if not clubs_all:
 with st.sidebar:
     st.markdown("### Palos")
 
-    # Initialize checkbox states for each club
-    for c in clubs_all:
-        k = f"club__{c}"
-        if k not in st.session_state:
-            st.session_state[k] = False
-
-    # Track previous state to detect toggles
-    if "_sel_all_prev" not in st.session_state:
-        st.session_state["_sel_all_prev"] = False
-    if "_sel_none_prev" not in st.session_state:
-        st.session_state["_sel_none_prev"] = False
-
-    sel_all = st.checkbox("Seleccionar todos", key="_sel_all")
-    sel_none = st.checkbox("Seleccionar ninguno", key="_sel_none")
-
-    # If user toggles Select All ON -> set all clubs ON and turn off Select None
-    if sel_all and not st.session_state["_sel_all_prev"]:
+    # ---------- Callbacks (avoid setting widget state after creation in the same run) ----------
+    def _apply_select_all():
         for c in clubs_all:
             st.session_state[f"club__{c}"] = True
-        st.session_state["_sel_none"] = False
 
-    # If user toggles Select None ON -> set all clubs OFF and turn off Select All
-    if sel_none and not st.session_state["_sel_none_prev"]:
+    def _apply_select_none():
         for c in clubs_all:
             st.session_state[f"club__{c}"] = False
-        st.session_state["_sel_all"] = False
 
-    st.session_state["_sel_all_prev"] = bool(st.session_state.get("_sel_all", False))
-    st.session_state["_sel_none_prev"] = bool(st.session_state.get("_sel_none", False))
+    def _sync_master_toggles_from_clubs():
+        states = [bool(st.session_state.get(f"club__{c}", False)) for c in clubs_all]
+        all_on = all(states) if states else False
+        none_on = (not any(states)) if states else True
+        st.session_state["_sel_all"] = all_on
+        st.session_state["_sel_none"] = none_on
+
+    def _on_sel_all_change():
+        # If user turned ON "Seleccionar todos" -> set all clubs ON
+        if st.session_state.get("_sel_all", False):
+            _apply_select_all()
+        _sync_master_toggles_from_clubs()
+
+    def _on_sel_none_change():
+        # If user turned ON "Seleccionar ninguno" -> set all clubs OFF
+        if st.session_state.get("_sel_none", False):
+            _apply_select_none()
+        _sync_master_toggles_from_clubs()
+
+    def _on_any_club_change():
+        _sync_master_toggles_from_clubs()
+
+    # ---------- Initialize club states (first run) ----------
+    if "_clubs_init" not in st.session_state:
+        for c in clubs_all:
+            st.session_state[f"club__{c}"] = True  # default: all selected
+        st.session_state["_clubs_init"] = True
+        _sync_master_toggles_from_clubs()
+
+    # ---------- Master toggles (with callbacks) ----------
+    st.checkbox("Seleccionar todos", key="_sel_all", on_change=_on_sel_all_change)
+    st.checkbox("Seleccionar ninguno", key="_sel_none", on_change=_on_sel_none_change)
 
     st.markdown("")
 
-    # One checkbox per club (always shown)
+    # ---------- One checkbox per club (always visible) ----------
     for c in clubs_all:
-        st.checkbox(c, key=f"club__{c}")
+        st.checkbox(c, key=f"club__{c}", on_change=_on_any_club_change)
 
     clubs_plot = [c for c in clubs_all if st.session_state.get(f"club__{c}", False)]
-    # Permitir selección vacía: si no hay palos marcados, el Virtual Range se muestra vacío.
 
 # Session label
+
 
 
 n_dates_show = len(dates_used) if dates_used else 1
