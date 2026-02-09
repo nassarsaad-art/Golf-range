@@ -534,68 +534,41 @@ def plot_virtual_range(df, clubs, session_label: str, portrait: bool = True):
                     center=center, w=w, h=h, ang=ang
                 ))
 
-    # Pass 2: place labels OUTSIDE and in ASCENDING order (bottom-to-top),
-    # but keep each label VERY CLOSE to its own ellipse.
+    # Pass 2: place labels OUTSIDE and in ASCENDING order (by carry),
+    # aligned as a clean right-side column (like launch monitors).
     labels_placed = []
     label_intents.sort(key=lambda d: d["avg"])  # ascending carry
 
-    # Small step to avoid label collisions (in yards on Y axis)
-    y_step = 2.4
+    # Right column X position (inside plot bounds, but outside every ellipse in practice)
+    col_x = xlim[1] - 1.2
+    y_step = 3.2  # minimum vertical separation between labels (yd)
 
-    # Greedy: for each club, start at right side of its own ellipse (closest point),
-    # then nudge minimally to avoid overlaps, while keeping order ascending in Y.
     prev_y = -1e9
     for d in label_intents:
         center, w, h, ang = d["center"], d["w"], d["h"], d["ang"]
         txt, col = d["txt"], d["color"]
         cx, cy = float(center[0]), float(center[1])
-        rx, ry = float(w/2.0), float(h/2.0)
+        rx = float(w/2.0)
 
-        # Base position: just outside the ellipse on the RIGHT
-        margin = 2.0
-        lx = cx + rx + margin
+        # Place at the same "height" as the ellipse, but keep carry hierarchy and avoid overlaps
         ly = cy
+        ly = max(ly, prev_y + y_step)
 
-        # Keep label near ellipse vertically (cap how far we can drift from cy)
-        max_shift = max(4.0, min(12.0, 0.85*ry))
+        # Clamp into bounds
+        ly = float(min(max(ly, ylim[0] + 2.0), ylim[1] - 2.0))
 
-        # Enforce ascending visual ordering (carry ascending => y ascending)
-        if ly < prev_y + y_step:
-            ly = prev_y + y_step
-
-        # If that pushes label too far from its ellipse, prefer moving slightly in X instead
-        # and keep Y near cy as much as possible.
-        if abs(ly - cy) > max_shift:
-            ly = cy + np.sign(ly - cy) * max_shift
-
-        # Collision avoidance: adjust Y first within max_shift; if still colliding, extend X a bit.
-        def collides(x, y):
-            for (px, py) in labels_placed:
-                if (x - px)**2 + (y - py)**2 < (4.0**2):
-                    return True
-            return False
-
-        # Try small nudges up (keeping order), within the allowed band
-        tries = 0
-        while collides(lx, ly) and tries < 18:
-            candidate = ly + y_step
-            if abs(candidate - cy) <= max_shift:
-                ly = candidate
-            else:
-                # Can't move more in Y without drifting; move slightly out in X (still close)
-                lx += 2.2
-            tries += 1
-
-        # Ensure the ENTIRE chip stays outside the ellipse line: keep a bit more margin if needed
-        # (approx by pushing anchor X slightly if anchor still inside due to rotation)
-        # We'll just ensure the anchor point isn't inside (chip extends to the right with ha='left').
+        # Ensure label is outside its own ellipse (very conservative check)
+        # If somehow inside (extremely wide ellipse), push the label further right by a small margin.
+        lx = float(col_x)
         if point_inside_ellipse((lx, ly), center, w, h, ang, pad=1.0):
-            lx = cx + rx + margin + 3.0
+            lx = float(min(xlim[1] - 0.6, cx + rx + 3.0))
 
+        # Tinted chip label (no border)
         face = blend_with_white(col, 0.82)
         text_col = darken(col, 0.72)
+
         ax.text(lx, ly, txt,
-                fontsize=10, ha="left", va="center", color=text_col,
+                fontsize=10, ha="right", va="center", color=text_col,
                 bbox=dict(boxstyle="round,pad=0.38", facecolor=face, edgecolor="none", alpha=0.90),
                 zorder=7)
 
