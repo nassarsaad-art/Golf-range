@@ -336,8 +336,10 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
     ax = plt.gca()
 
     ax.set_facecolor("#F7F8FA")
+    arc_gray = (0.20, 0.22, 0.25, 0.42)   # same family as arc labels
+    grid_gray = (0.20, 0.22, 0.25, 0.12)  # very light grid
     for spine in ax.spines.values():
-        spine.set_color((0,0,0,0.10))
+        spine.set_color(grid_gray)
 
     # Build curves
     max_d = 0.0
@@ -363,10 +365,13 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
         ax.plot(x, y, lw=2.6, color=col, alpha=0.90, zorder=3)
         # Apex marker + label
         ax.scatter([d/2], [h], s=42, color=col, zorder=4, edgecolors=(1,1,1,0.6), linewidths=0.6)
+        # Tinted chip label (same logic as Virtual Range)
+        face = blend_with_white(col, 0.84)
+        text_col = darken(col, 0.70)
         ax.text(d/2, h + max(0.6, 0.04*h), f"{c}  {int(round(d))}yd / {int(round(h))}m",
-                fontsize=9, color=(0.08,0.09,0.10,0.88),
+                fontsize=9, color=text_col,
                 ha="center", va="bottom",
-                bbox=dict(boxstyle="round,pad=0.30", facecolor="white", edgecolor=col, linewidth=1.6, alpha=0.95),
+                bbox=dict(boxstyle="round,pad=0.30", facecolor=face, edgecolor="none", alpha=0.90),
                 zorder=5)
 
     if max_d <= 0:
@@ -378,17 +383,16 @@ def plot_flight_profiles(df_core, clubs, color_map, marker_map, height_col, sess
     ax.set_xlim(0, max_d*1.08)
     ax.set_ylim(0, max_h*1.25)
     # Match the subtle gray used by arc labels in the Virtual Range
-    arc_gray = (0.20, 0.22, 0.25, 0.42)
-    ax.grid(True, color=(0.20,0.22,0.25,0.12), linewidth=1.0, zorder=1)
+    ax.grid(True, color=grid_gray, linewidth=1.0, zorder=1)
     ax.tick_params(axis="both", colors=arc_gray)
     ax.xaxis.label.set_color(arc_gray)
     ax.yaxis.label.set_color(arc_gray)
     ax.set_xlabel("Carry (yd)")
     ax.set_ylabel("Altura (m)")
-    ax.set_title("Trayectoria promedio por palo (Carry vs Altura)", fontsize=12, color=(0,0,0,0.68), pad=12)
-
-    ax.text(0.5, 1.01, session_label, transform=ax.transAxes,
-            ha="center", va="bottom", fontsize=9, color=(0,0,0,0.45))
+    ax.set_title("Trayectoria promedio (Carry vs Altura)", fontsize=12, color=(0,0,0,0.60), pad=10)
+    # Put session label inside the plot area (top-left) to avoid overlapping with the title
+    ax.text(0.01, 0.99, session_label, transform=ax.transAxes,
+            ha="left", va="top", fontsize=9, color=(0,0,0,0.42))
 
     return fig
 
